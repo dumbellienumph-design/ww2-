@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WW2 FRONTLINES - Instant Entry</title>
+    <link rel="stylesheet" href="style.css">
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+                "cannon-es": "https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js"
+            }
+        }
+    </script>
+</head>
+<body>
+    <div id="suppression-overlay"></div>
+
+    <!-- 1.2 SNIPER SCOPE OVERLAY -->
+    <div id="scope-overlay" class="hidden">
+        <div class="scope-circle">
+            <div class="reticle-v"></div>
+            <div class="reticle-h"></div>
+        </div>
+        <div class="scope-black-l"></div>
+        <div class="scope-black-r"></div>
+    </div>
+
+    <div id="full-map-overlay">
+        <div id="full-map-title">TACTICAL MAP - SECTOR 7</div>
+        <canvas id="full-map-canvas"></canvas>
+    </div>
+
+    <div id="scoreboard-overlay">
+        <div class="sb-box">
+            <h1 style="font-size: 3rem; margin-top: 0;">MISSION COMPLETE</h1>
+            <div id="sb-mission-result" style="font-size: 1.5rem; margin-bottom: 2rem; font-weight: bold;">ALLIED VICTORY</div>
+            
+            <div class="sb-stat">ENEMIES NEUTRALIZED <span id="sb-kills">0</span></div>
+            <div class="sb-stat">OBJECTIVES SECURED <span id="sb-caps">0</span></div>
+            <div class="sb-stat">TOTAL MISSION XP <span id="sb-xp">0</span></div>
+            
+            <div class="sb-rank-up">FINAL RANK: <span id="sb-rank">PRIVATE</span></div>
+            
+            <div class="menu-buttons" style="margin-top: 3rem; width: 100%;">
+                <button onclick="location.reload()">REDEPLOY TO FRONT</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="compass-container">
+        <div id="compass-tape"></div>
+        <div id="compass-marker"></div>
+    </div>
+    <!-- 1. NO START OVERLAY - World shows immediately -->
+
+    <!-- 2. GAME UI -->
+    <div id="ui-layer">
+        <!-- TACTICAL WAYPOINTS -->
+        <div id="wp-hq" class="waypoint-marker">
+            <div class="icon">▼</div>
+            <div class="label">ENEMY HQ</div>
+            <div class="dist">0m</div>
+        </div>
+        <div id="wp-base" class="waypoint-marker">
+            <div class="icon">▼</div>
+            <div class="label">ALLIED BASE</div>
+            <div class="dist">0m</div>
+        </div>
+
+        <div id="killstreak-container">RECON PLANE <span>(4) READY</span></div>
+        <div id="rank-indicator">RANK <span>PRIVATE</span></div>
+        <div id="class-indicator">ROLE <span>RIFLEMAN</span></div>
+        <div id="command-menu">
+            <h3 style="margin-top:0">SQUAD COMMANDS</h3>
+            <button class="command-btn" onclick="window.game.setSquadOrder('ADVANCE')">1: ADVANCE TO POINT</button>
+            <button class="command-btn" onclick="window.game.setSquadOrder('HOLD')">2: HOLD POSITION</button>
+            <button class="command-btn" onclick="window.game.setSquadOrder('REGROUP')">3: REGROUP ON ME</button>
+            <p style="font-size:0.7rem; margin-top:10px">RELEASE V TO CANCEL</p>
+        </div>
+        <div id="kill-feed"></div>
+        <div id="tactical-notify"></div>
+        <div id="game-ui">
+            <div id="crosshair">
+                <div class="line top"></div>
+                <div class="line bottom"></div>
+                <div class="line left"></div>
+                <div class="line right"></div>
+            </div>
+            <div id="hitmarker" class="hitmarker"></div>
+            <div id="stats">
+                <div id="health-container">
+                    <div id="health-bar"></div>
+                </div>
+                <div id="medic-status">BANDAGES: 3 | READY</div>
+                <div id="ammo">AMMO: 30/150</div>
+            </div>
+            <div id="minimap-container">
+                <canvas id="minimap-canvas"></canvas>
+            </div>
+        </div>
+
+        <!-- Esc Menu -->
+        <div id="esc-menu" class="overlay hidden">
+            <h1>PAUSED</h1>
+            <div class="menu-buttons">
+                <button id="btn-resume">RESUME</button>
+                <button onclick="location.reload()">REDEPLOY</button>
+            </div>
+        </div>
+    </div>
+
+    <canvas id="game-canvas"></canvas>
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>
