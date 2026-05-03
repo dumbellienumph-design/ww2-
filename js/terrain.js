@@ -60,7 +60,7 @@ export class Terrain {
             matrix[i] = [];
             for (let j = 0; j <= this.resolution; j++) {
                 const worldX = -this.size / 2 + i * this.elementSize;
-                const worldZ = -this.size / 2 + j * this.elementSize;
+                const worldZ = this.size / 2 - j * this.elementSize;
                 const h = this.getHeight(worldX, worldZ);
                 matrix[i][j] = h;
 
@@ -85,15 +85,37 @@ export class Terrain {
         this.mesh.receiveShadow = true;
         this.scene.add(this.mesh);
 
-        // Cannon-es Heightfield mapping
+        // --- HARD GROUND PHYSICS ---
         const hfShape = new CANNON.Heightfield(matrix, { elementSize: this.elementSize });
-        this.body = new CANNON.Body({ mass: 0 });
+        const groundMaterial = new CANNON.Material("groundMaterial");
+        this.body = new CANNON.Body({ mass: 0, material: groundMaterial });
         this.body.addShape(hfShape);
+
+        // Define interaction with default material (for tank/player)
+        const contactMaterial = new CANNON.ContactMaterial(
+            new CANNON.Material(), // Default material
+            groundMaterial,
+            {
+                friction: 5.0,
+                restitution: 0.0,
+                contactEquationStiffness: 1e12, // Extremely stiff/hard
+                contactEquationRelaxation: 1
+            }
+        );
+        this.world.addContactMaterial(contactMaterial);
+
         // Rotate Local Z (height) to World Y (up)
         this.body.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
-        // Position min-corner at (-size/2, 0, -size/2)
-        this.body.position.set(-this.size / 2, 0, -this.size / 2);
+        // Position min-corner at (-size/2, 0, size/2)
+        this.body.position.set(-this.size / 2, 0, this.size / 2);
         this.world.addBody(this.body);
+
+        // --- INFINITE SAFETY FLOOR ---
+        const floorBody = new CANNON.Body({ mass: 0, material: groundMaterial });
+        floorBody.addShape(new CANNON.Plane());
+        floorBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+        floorBody.position.set(0, -1, 0); 
+        this.world.addBody(floorBody);
 
         // --- INVISIBLE BOUNDARY WALLS ---
         this.addBoundaryWalls();
@@ -106,7 +128,7 @@ export class Terrain {
         
         // Convert world X/Z to grid indices i (column) and j (row)
         const gx = Math.round((point.x + size/2) / this.elementSize);
-        const gz = Math.round((point.z + size/2) / this.elementSize);
+        const gz = Math.round((size/2 - point.z) / this.elementSize);
         
         // Calculate the range of indices to check
         const gridRadius = Math.ceil(radius / this.elementSize) + 1;
@@ -120,8 +142,8 @@ export class Terrain {
                     const dx = (i - gx) * this.elementSize;
                     const dz = (j - gz) * this.elementSize;
                     if (dx*dx + dz*dz < radius * radius) {
-                        // Change to bright blue
-                        colorAttr.setXYZ(vIdx, 0.0, 0.4, 1.0);
+                        // Change to dirt color (dark brown)
+                        colorAttr.setXYZ(vIdx, 0.25, 0.2, 0.15);
                     }
                 }
             }

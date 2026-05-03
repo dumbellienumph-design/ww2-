@@ -135,6 +135,10 @@ export class Tank {
     }
 
     update(delta, controls, camera) {
+        // ALWAYS sync visual position with physics body
+        this.group.position.copy(this.body.position);
+        this.group.quaternion.copy(this.body.quaternion);
+
         if(this.isDestroyed) {
             this.body.velocity.set(0, 0, 0);
             this.body.angularVelocity.set(0, 0, 0);

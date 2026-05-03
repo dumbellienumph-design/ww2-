@@ -7,7 +7,7 @@ export class Vegetation {
         this.world = world;
         this.terrain = terrain;
         
-        this.grassCount = 150000; // Increased quantity
+        this.grassCount = 150000;
         this.objects = []; 
         this.grass = null;
         this.windTime = 0;
@@ -20,11 +20,10 @@ export class Vegetation {
     }
 
     createGrass() {
-        // Shorter grass height: 0.4 instead of 1.0
         const bladeGeo = new THREE.PlaneGeometry(0.3, 0.4, 1, 2);
-        bladeGeo.translate(0, 0.2, 0);
+        bladeGeo.translate(0, 0.2, 0); // CRITICAL: Pivot at bottom
         const material = new THREE.MeshStandardMaterial({ 
-            color: 0x3d5a1e, side: THREE.DoubleSide, roughness: 1.0
+            color: 0x224422, side: THREE.DoubleSide, roughness: 1.0
         });
 
         material.onBeforeCompile = (shader) => {
@@ -42,33 +41,58 @@ export class Vegetation {
             this.grassShader = shader;
         };
 
-        const instancedMesh = new THREE.InstancedMesh(bladeGeo, material, this.grassCount);
-        const dummy = new THREE.Object3D();
-        const area = this.terrain.size;
+        const positions = this.terrain.mesh.geometry.attributes.position.array;
+        const normals = this.terrain.mesh.geometry.attributes.normal.array;
+        const vertexCount = positions.length / 3;
 
-        for (let i = 0; i < this.grassCount; i++) {
-            const x = (Math.random() - 0.5) * area;
-            const z = (Math.random() - 0.5) * area;
-            const y = this.terrain.getHeight(x, z);
+        const instancedMesh = new THREE.InstancedMesh(bladeGeo, material, vertexCount);
+        const dummy = new THREE.Object3D();
+        const up = new THREE.Vector3(0, 1, 0);
+        const randQuat = new THREE.Quaternion();
+        const normal = new THREE.Vector3();
+        let count = 0;
+
+        for (let i = 0; i < vertexCount; i++) {
+            if (Math.random() > 0.85) continue;
+
+            const worldX = positions[i * 3];
+            const worldZ = -positions[i * 3 + 1];
             
-            if (y < 85) {
-                dummy.position.set(x, y, z);
-                dummy.rotation.y = Math.random() * Math.PI;
+            // Randomize the pattern
+            const jitterX = (Math.random() - 0.5) * this.terrain.elementSize * 0.8;
+            const jitterZ = (Math.random() - 0.5) * this.terrain.elementSize * 0.8;
+            const finalX = worldX + jitterX;
+            const finalZ = worldZ + jitterZ;
+
+            // Maintain 0 Distance
+            const finalY = this.terrain.getHeight(finalX, finalZ);
+            
+            // Exclude Mountain Tops
+            if (finalY >= 5 && finalY < 75) {
+                const hL = this.terrain.getHeight(finalX - 0.2, finalZ);
+                const hR = this.terrain.getHeight(finalX + 0.2, finalZ);
+                const hD = this.terrain.getHeight(finalX, finalZ - 0.2);
+                const hU = this.terrain.getHeight(finalX, finalZ + 0.2);
+                normal.set(hL - hR, 0.4, hD - hU).normalize();
+
+                dummy.position.set(finalX, finalY, finalZ);
+                dummy.quaternion.setFromUnitVectors(up, normal);
+                randQuat.setFromAxisAngle(up, Math.random() * Math.PI);
+                dummy.quaternion.multiply(randQuat);
+
                 const s = 0.8 + Math.random() * 0.7;
                 dummy.scale.set(s, s, s);
-            } else {
-                dummy.position.set(0, -1000, 0);
+                dummy.updateMatrix();
+                instancedMesh.setMatrixAt(count, dummy.matrix);
+                count++;
             }
-            
-            dummy.updateMatrix();
-            instancedMesh.setMatrixAt(i, dummy.matrix);
         }
-        instancedMesh.instanceMatrix.needsUpdate = true;
-        instancedMesh.receiveShadow = true;
-        instancedMesh.name = 'grass';
         
-        // --- NON-CORPOREAL FIX ---
-        // Completely disables raycasting for this object so bullets pass through without calculation
+        instancedMesh.count = count;
+        instancedMesh.instanceMatrix.needsUpdate = true;
+        instancedMesh.castShadow = false;
+        instancedMesh.receiveShadow = false;
+        instancedMesh.name = 'grass';
         instancedMesh.raycast = () => {}; 
         
         this.scene.add(instancedMesh);
