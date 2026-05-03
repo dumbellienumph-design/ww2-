@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import perlin from 'https://cdn.jsdelivr.net/gh/joeiddon/perlin@master/perlin.js';
+import perlin from 'https://esm.sh/gh/joeiddon/perlin';
 
 export class Terrain {
     constructor(scene, world) {
