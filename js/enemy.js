@@ -2,31 +2,56 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { VFX } from './vfx.js';
 
+const STATE = { PATROL: 0, ALERT: 1, ATTACK: 2 };
+
 export class Enemy {
-    constructor(scene, world, position, audio, type = 'infantry') {
+    constructor(scene, world, position) {
         this.scene = scene;
         this.world = world;
+        this.terrain = null;
+
         this.maxHealth = 100;
         this.health = 100;
         this.speed = 4;
+        this.state = STATE.PATROL;
         this.isDead = false;
-        
+        this.faction = 'enemy';
+
+        this.spawnPos = position.clone();
+        this.waypoints = [];
+        this.currentWaypoint = 0;
+        this.shootTimer = 1 + Math.random() * 2;
+        this.alertTimer = 0;
+        this.animTimer = Math.random() * 10;
+
         this.group = new THREE.Group();
         this.scene.add(this.group);
 
-        this.animTimer = Math.random() * 10;
-        
         this.initPhysics(position);
-        this.initDetailedVisuals();
+        this.initVisuals();
         this.initHealthBar();
+
+        // Waypoints generated lazily on first update (terrain may not be set yet)
+        this._waypointsReady = false;
+    }
+
+    _buildWaypoints() {
+        this._waypointsReady = true;
+        const spread = 60;
+        for (let i = 0; i < 6; i++) {
+            const x = this.spawnPos.x + (Math.random() - 0.5) * spread;
+            const z = this.spawnPos.z + (Math.random() - 0.5) * spread;
+            const y = this.terrain ? this.terrain.getHeight(x, z) + 1 : this.spawnPos.y;
+            this.waypoints.push(new THREE.Vector3(x, y, z));
+        }
     }
 
     initPhysics(position) {
         this.body = new CANNON.Body({
-            mass: 80, 
+            mass: 80,
             shape: new CANNON.Box(new CANNON.Vec3(0.4, 0.9, 0.4)),
             position: new CANNON.Vec3(position.x, position.y, position.z),
-            fixedRotation: true, 
+            fixedRotation: true,
             linearDamping: 0.5
         });
         this.world.addBody(this.body);
@@ -34,18 +59,16 @@ export class Enemy {
         this.body.onHit = (damage) => this.takeDamage(damage);
     }
 
-    initDetailedVisuals() {
-        const uniformMat = new THREE.MeshStandardMaterial({ color: 0x4a4e4d }); 
-        const skinMat = new THREE.MeshStandardMaterial({ color: 0xdbac98 }); 
-        const gearMat = new THREE.MeshStandardMaterial({ color: 0x222222 }); 
+    initVisuals() {
+        const uniformMat = new THREE.MeshStandardMaterial({ color: 0x4a4e4d });
+        const skinMat = new THREE.MeshStandardMaterial({ color: 0xdbac98 });
+        const gearMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
 
-        // 1. Torso
         this.torso = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.7, 0.3), uniformMat);
         this.torso.position.y = 0.4;
         this.torso.castShadow = true;
         this.group.add(this.torso);
 
-        // 2. Head & Helmet
         this.head = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.25, 0.25), skinMat);
         this.head.position.y = 0.85;
         this.group.add(this.head);
@@ -55,7 +78,6 @@ export class Enemy {
         helmet.castShadow = true;
         this.group.add(helmet);
 
-        // 3. Legs
         this.leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.5, 0.2), uniformMat);
         this.leftLeg.position.set(-0.15, 0, 0);
         this.group.add(this.leftLeg);
@@ -64,7 +86,6 @@ export class Enemy {
         this.rightLeg.position.set(0.15, 0, 0);
         this.group.add(this.rightLeg);
 
-        // 4. Arms
         this.armGroup = new THREE.Group();
         this.armGroup.position.y = 0.6;
         this.group.add(this.armGroup);
@@ -83,129 +104,198 @@ export class Enemy {
     }
 
     initHealthBar() {
-        const barGeo = new THREE.PlaneGeometry(1.2, 0.15);
-        const barMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, side: THREE.DoubleSide });
-        this.healthBar = new THREE.Mesh(barGeo, barMat);
-        this.healthBar.position.y = 1.5;
-        this.group.add(this.healthBar);
+        const bar = new THREE.Mesh(
+            new THREE.PlaneGeometry(1.2, 0.15),
+            new THREE.MeshBasicMaterial({ color: 0x00ff00, side: THREE.DoubleSide })
+        );
+        bar.position.y = 1.6;
+        this.healthBar = bar;
+        this.group.add(bar);
 
-        const bgGeo = new THREE.PlaneGeometry(1.3, 0.2);
-        const bgMat = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide });
-        const bg = new THREE.Mesh(bgGeo, bgMat);
-        bg.position.set(0, 1.5, -0.01);
+        const bg = new THREE.Mesh(
+            new THREE.PlaneGeometry(1.3, 0.2),
+            new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide })
+        );
+        bg.position.set(0, 1.6, -0.01);
         this.group.add(bg);
     }
 
     takeDamage(amount) {
         if (this.isDead) return;
         this.health -= amount;
-        
-        // Update Health Bar
-        const percent = Math.max(0, this.health / this.maxHealth);
-        this.healthBar.scale.x = percent;
-        this.healthBar.material.color.setHSL(percent * 0.3, 1, 0.5);
+        const pct = Math.max(0, this.health / this.maxHealth);
+        this.healthBar.scale.x = pct;
+        this.healthBar.material.color.setHSL(pct * 0.3, 1, 0.5);
 
-        // Flinch
-        this.group.position.y += 0.1;
+        // Become alert/aggressive when hit
+        this.state = STATE.ALERT;
+        this.alertTimer = 12;
 
-        if (this.health <= 0) {
-            this.die();
-        }
+        if (this.health <= 0) this._die();
     }
 
-    die() {
+    _die() {
         this.isDead = true;
         this.scene.remove(this.group);
         this.world.removeBody(this.body);
+        if (window.game) window.game.onEnemyKilled();
 
-        // --- RAGDOLL COLLAPSE ---
+        // Ragdoll
         const parts = [
             { mesh: this.torso, size: [0.6, 0.7, 0.3] },
             { mesh: this.head, size: [0.25, 0.25, 0.25] },
             { mesh: this.leftLeg, size: [0.2, 0.5, 0.2] },
-            { mesh: this.rightLeg, size: [0.2, 0.5, 0.2] },
-            { mesh: this.weapon, size: [0.08, 0.1, 1.0] }
+            { mesh: this.rightLeg, size: [0.2, 0.5, 0.2] }
         ];
-
         parts.forEach(p => {
-            const worldPos = new THREE.Vector3();
-            p.mesh.getWorldPosition(worldPos);
-            
-            const partBody = new CANNON.Body({
+            const wp = new THREE.Vector3();
+            p.mesh.getWorldPosition(wp);
+            const rb = new CANNON.Body({
                 mass: 5,
-                shape: new CANNON.Box(new CANNON.Vec3(p.size[0]/2, p.size[1]/2, p.size[2]/2)),
-                position: new CANNON.Vec3(worldPos.x, worldPos.y, worldPos.z)
+                shape: new CANNON.Box(new CANNON.Vec3(p.size[0] / 2, p.size[1] / 2, p.size[2] / 2)),
+                position: new CANNON.Vec3(wp.x, wp.y, wp.z)
             });
-            partBody.velocity.set((Math.random()-0.5)*5, 5, (Math.random()-0.5)*5);
-            partBody.angularVelocity.set(Math.random()*10, Math.random()*10, Math.random()*10);
-            
-            this.world.addBody(partBody);
-            
-            const partMesh = p.mesh.clone();
-            this.scene.add(partMesh);
-            
-            const updatePart = () => {
-                partMesh.position.copy(partBody.position);
-                partMesh.quaternion.copy(partBody.quaternion);
-                if (partBody.position.y > -5) requestAnimationFrame(updatePart);
-                else { this.scene.remove(partMesh); this.world.removeBody(partBody); }
+            rb.velocity.set((Math.random() - 0.5) * 4, 4 + Math.random() * 3, (Math.random() - 0.5) * 4);
+            rb.angularVelocity.set(Math.random() * 8, Math.random() * 8, Math.random() * 8);
+            this.world.addBody(rb);
+            const m = p.mesh.clone();
+            this.scene.add(m);
+            const tick = () => {
+                m.position.copy(rb.position);
+                m.quaternion.copy(rb.quaternion);
+                if (rb.position.y > -10) requestAnimationFrame(tick);
+                else { this.scene.remove(m); try { this.world.removeBody(rb); } catch (_) {} }
             };
-            updatePart();
-            
-            setTimeout(() => { this.scene.remove(partMesh); this.world.removeBody(partBody); }, 5000);
+            tick();
+            setTimeout(() => { this.scene.remove(m); try { this.world.removeBody(rb); } catch (_) {} }, 6000);
         });
+    }
+
+    _snapToTerrain(x, z) {
+        return this.terrain ? this.terrain.getHeight(x, z) + 1 : this.body.position.y;
+    }
+
+    _doPatrol(delta, myPos) {
+        if (this.waypoints.length === 0) return;
+        const target = this.waypoints[this.currentWaypoint];
+        const dx = target.x - myPos.x;
+        const dz = target.z - myPos.z;
+        const dist = Math.sqrt(dx * dx + dz * dz);
+        if (dist < 3) {
+            this.currentWaypoint = (this.currentWaypoint + 1) % this.waypoints.length;
+        } else {
+            const spd = this.speed * 0.55;
+            this.body.velocity.x = (dx / dist) * spd;
+            this.body.velocity.z = (dz / dist) * spd;
+            this.group.lookAt(target.x, this.group.position.y, target.z);
+        }
+    }
+
+    _doAlert(delta, playerPos, myPos) {
+        this.alertTimer -= delta;
+        if (this.alertTimer <= 0) this.state = STATE.PATROL;
+
+        const dx = playerPos.x - myPos.x;
+        const dz = playerPos.z - myPos.z;
+        const dist = Math.sqrt(dx * dx + dz * dz);
+        this.group.lookAt(playerPos.x, this.group.position.y, playerPos.z);
+        this.armGroup.rotation.x = 0;
+
+        if (dist > 22) {
+            this.body.velocity.x = (dx / dist) * this.speed;
+            this.body.velocity.z = (dz / dist) * this.speed;
+        } else {
+            this.body.velocity.x *= 0.6;
+            this.body.velocity.z *= 0.6;
+            this.state = STATE.ATTACK;
+        }
+    }
+
+    _doAttack(delta, playerPos, myPos, player) {
+        const dx = playerPos.x - myPos.x;
+        const dz = playerPos.z - myPos.z;
+        const dist = Math.sqrt(dx * dx + dz * dz);
+
+        this.group.lookAt(playerPos.x, this.group.position.y, playerPos.z);
+        this.armGroup.rotation.x = -1.2;
+        this.body.velocity.x *= 0.7;
+        this.body.velocity.z *= 0.7;
+
+        if (dist > 80) { this.state = STATE.ALERT; this.alertTimer = 10; return; }
+
+        this.shootTimer -= delta;
+        if (this.shootTimer <= 0) {
+            this.shootTimer = 1.2 + Math.random() * 1.8;
+            this._fireAt(playerPos, player);
+        }
+    }
+
+    _fireAt(targetPos, player) {
+        const startPos = new THREE.Vector3();
+        this.torso.getWorldPosition(startPos);
+        startPos.y += 0.5;
+
+        const dir = new THREE.Vector3().subVectors(targetPos, startPos).normalize();
+        dir.x += (Math.random() - 0.5) * 0.08;
+        dir.z += (Math.random() - 0.5) * 0.08;
+        dir.normalize();
+
+        const bullet = new THREE.Mesh(
+            new THREE.SphereGeometry(0.08, 4, 4),
+            new THREE.MeshBasicMaterial({ color: 0xff4400 })
+        );
+        bullet.position.copy(startPos);
+        this.scene.add(bullet);
+
+        const t0 = Date.now();
+        const step = () => {
+            if (Date.now() - t0 > 2000 || this.isDead) { this.scene.remove(bullet); return; }
+            bullet.position.add(dir.clone().multiplyScalar(1.3));
+            if (player && !player.isDead && bullet.position.distanceTo(player.body.position) < 2) {
+                player.takeDamage(8);
+                this.scene.remove(bullet);
+                return;
+            }
+            requestAnimationFrame(step);
+        };
+        step();
     }
 
     update(delta, playerPos, player) {
         if (this.isDead) return;
+        if (!this._waypointsReady) this._buildWaypoints();
 
-        const currentPos = new THREE.Vector3(this.body.position.x, this.body.position.y, this.body.position.z);
-        const dist = currentPos.distanceTo(playerPos);
+        const myPos = new THREE.Vector3(this.body.position.x, this.body.position.y, this.body.position.z);
 
-        // Look at player
-        this.group.lookAt(playerPos.x, this.group.position.y, playerPos.z);
-        if (this.healthBar) this.healthBar.lookAt(player.camera.position);
+        // Terrain snap
+        const groundY = this._snapToTerrain(this.body.position.x, this.body.position.z);
+        if (this.body.position.y < groundY) {
+            this.body.position.y = groundY;
+            this.body.velocity.y = Math.max(0, this.body.velocity.y);
+        }
 
-        // Animation
-        const moveSpeed = this.body.velocity.length();
-        this.animTimer += delta * (moveSpeed + 1);
-        
-        if (moveSpeed > 0.5) {
+        const dist = myPos.distanceTo(playerPos);
+
+        // State transitions
+        if (this.state === STATE.PATROL && dist < 120) { this.state = STATE.ALERT; this.alertTimer = 15; }
+
+        switch (this.state) {
+            case STATE.PATROL: this._doPatrol(delta, myPos); break;
+            case STATE.ALERT: this._doAlert(delta, playerPos, myPos); break;
+            case STATE.ATTACK: this._doAttack(delta, playerPos, myPos, player); break;
+        }
+
+        // Sync group to physics body
+        this.group.position.set(this.body.position.x, this.body.position.y, this.body.position.z);
+        if (player && player.camera) this.healthBar.lookAt(player.camera.position);
+
+        // Walk animation
+        const spd = Math.sqrt(this.body.velocity.x ** 2 + this.body.velocity.z ** 2);
+        this.animTimer += delta * (spd + 0.5);
+        if (spd > 0.5) {
             this.leftLeg.position.z = Math.sin(this.animTimer * 5) * 0.2;
             this.rightLeg.position.z = Math.cos(this.animTimer * 5) * 0.2;
             this.torso.position.y = 0.4 + Math.abs(Math.sin(this.animTimer * 10)) * 0.05;
         }
-
-        if (dist < 150) {
-            const moveDir = new THREE.Vector3().subVectors(playerPos, currentPos).normalize();
-            if (dist > 20) {
-                this.body.velocity.x = moveDir.x * this.speed;
-                this.body.velocity.z = moveDir.z * this.speed;
-                this.armGroup.rotation.x = 0;
-            } else {
-                this.body.velocity.set(0, 0, 0);
-                this.armGroup.rotation.x = -1.2;
-                if (Math.random() > 0.98) this.shoot(playerPos, player);
-            }
-        }
-    }
-
-    shoot(targetPos, player) {
-        const bullet = new THREE.Mesh(new THREE.SphereGeometry(0.1), new THREE.MeshBasicMaterial({color: 0xff0000}));
-        const startPos = new THREE.Vector3();
-        this.torso.getWorldPosition(startPos); startPos.y += 0.5;
-        bullet.position.copy(startPos);
-        this.scene.add(bullet);
-        const dir = new THREE.Vector3().subVectors(targetPos, startPos).normalize();
-        const startTime = Date.now();
-        const anim = () => {
-            if (Date.now() - startTime > 2000 || this.isDead) { this.scene.remove(bullet); return; }
-            bullet.position.add(dir.clone().multiplyScalar(1.5));
-            if (bullet.position.distanceTo(player.body.position) < 1.5) {
-                player.takeDamage(5); this.scene.remove(bullet); return;
-            }
-            requestAnimationFrame(anim);
-        };
-        anim();
     }
 }

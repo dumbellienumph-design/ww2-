@@ -1,126 +1,83 @@
-import * as THREE from 'three';
-
-export class AudioManager {
-    constructor(camera) {
-        this.listener = new THREE.AudioListener();
-        camera.add(this.listener);
-
-        this.sounds = new Map();
-        this.loader = new THREE.AudioLoader();
-        this.globalVolume = 1.0;
-        this.isAudioContextStarted = false;
-        
-        this.onProgress = null;
+export class GameAudio {
+    constructor() {
+        this.ctx = null;
+        this.enabled = false;
     }
 
-    async loadSound(name, url, isPositional = false, loop = false, volume = 1.0) {
-        return new Promise((resolve) => {
-            this.loader.load(url, (buffer) => {
-                const audio = isPositional ? new THREE.PositionalAudio(this.listener) : new THREE.Audio(this.listener);
-                audio.setBuffer(buffer);
-                audio.setLoop(loop);
-                audio.setVolume(volume * this.globalVolume);
-                
-                if (isPositional) {
-                    audio.setRefDistance(5);
-                    audio.setMaxDistance(100);
-                    audio.setRolloffFactor(1);
-                }
-
-                this.sounds.set(name, audio);
-                resolve(audio);
-            }, (xhr) => {
-                if (this.onProgress) {
-                    this.onProgress(name, xhr.loaded / xhr.total);
-                }
-            }, (error) => {
-                console.warn(`Failed to load sound: ${name} from ${url}. Skipping...`, error);
-                resolve(null); // Resolve anyway to prevent blocking the loading bar
-            });
-        });
-    }
-
-    startAudioContext() {
-        if (this.isAudioContextStarted) return;
-        const context = THREE.AudioContext.getContext();
-        if (context.state === 'suspended') { context.resume(); }
-        this.isAudioContextStarted = true;
-    }
-
-    fadeSound(name, targetVolume, duration = 1.0) {
-        const sound = this.sounds.get(name);
-        if (!sound) return;
-
-        const startVolume = sound.getVolume();
-        const startTime = performance.now();
-
-        const animateFade = () => {
-            const now = performance.now();
-            const elapsed = (now - startTime) / (duration * 1000);
-
-            if (elapsed < 1) {
-                const currentVolume = startVolume + (targetVolume * this.globalVolume - startVolume) * elapsed;
-                sound.setVolume(currentVolume);
-                requestAnimationFrame(animateFade);
-            } else {
-                sound.setVolume(targetVolume * this.globalVolume);
-                if (targetVolume === 0) sound.stop();
-            }
-        };
-
-        if (targetVolume > 0 && !sound.isPlaying) {
-            sound.setVolume(0);
-            sound.play();
-        }
-        
-        animateFade();
-    }
-
-    play(name, options = {}) {
-        const sound = this.sounds.get(name);
-        if (sound) {
-            if (options.randomPitch) {
-                sound.setPlaybackRate(0.9 + Math.random() * 0.2);
-            }
-            if (sound.isPlaying) sound.stop();
-            sound.play();
+    _init() {
+        if (this.ctx) return;
+        try {
+            this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+            this.enabled = true;
+        } catch (e) {
+            console.warn('Web Audio API not available');
         }
     }
 
-    stop(name) {
-        const sound = this.sounds.get(name);
-        if (sound && sound.isPlaying) {
-            sound.stop();
-        }
+    startAmbient() {
+        this._init();
+        if (!this.enabled) return;
+        this._scheduleArtillery();
     }
 
-    setPlaybackRate(name, rate) {
-        const sound = this.sounds.get(name);
-        if (sound) {
-            sound.setPlaybackRate(rate);
-        }
+    _scheduleArtillery() {
+        if (!this.enabled) return;
+        const delay = (10 + Math.random() * 20) * 1000;
+        setTimeout(() => { this._playRumble(); this._scheduleArtillery(); }, delay);
     }
 
-    updateAltitudeEffects(y) {
-        const lowPass = this.listener.context.createBiquadFilter();
-        lowPass.type = 'lowpass';
-        const cutoff = THREE.MathUtils.mapLinear(THREE.MathUtils.clamp(y, 0, 100), 0, 100, 20000, 5000);
-        lowPass.frequency.setValueAtTime(cutoff, this.listener.context.currentTime);
+    _playRumble() {
+        const duration = 1.5 + Math.random() * 2;
+        const bufLen = Math.floor(this.ctx.sampleRate * duration);
+        const buf = this.ctx.createBuffer(1, bufLen, this.ctx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < bufLen; i++) data[i] = (Math.random() * 2 - 1) * 0.8;
+        const src = this.ctx.createBufferSource();
+        src.buffer = buf;
+        const lp = this.ctx.createBiquadFilter();
+        lp.type = 'lowpass'; lp.frequency.value = 100;
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(0, this.ctx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.18, this.ctx.currentTime + 0.4);
+        gain.gain.linearRampToValueAtTime(0.18, this.ctx.currentTime + duration - 0.4);
+        gain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + duration);
+        src.connect(lp); lp.connect(gain); gain.connect(this.ctx.destination);
+        src.start();
     }
 
-    setVolume(name, volume) {
-        const sound = this.sounds.get(name);
-        if (sound) {
-            sound.setVolume(volume * this.globalVolume);
+    playGunshot() {
+        this._init();
+        if (!this.enabled) return;
+        const bufLen = Math.floor(this.ctx.sampleRate * 0.14);
+        const buf = this.ctx.createBuffer(1, bufLen, this.ctx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < bufLen; i++) {
+            data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufLen, 3.5);
         }
+        const src = this.ctx.createBufferSource();
+        src.buffer = buf;
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(2.5, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.14);
+        src.connect(gain); gain.connect(this.ctx.destination);
+        src.start();
     }
 
-    createPositionalSource(name, mesh) {
-        const sound = this.sounds.get(name);
-        if (sound && sound instanceof THREE.PositionalAudio) {
-            mesh.add(sound);
-            return sound;
+    playFootstep() {
+        this._init();
+        if (!this.enabled) return;
+        const bufLen = Math.floor(this.ctx.sampleRate * 0.055);
+        const buf = this.ctx.createBuffer(1, bufLen, this.ctx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < bufLen; i++) {
+            data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufLen, 3) * 0.35;
         }
-        return null;
+        const src = this.ctx.createBufferSource();
+        src.buffer = buf;
+        const lp = this.ctx.createBiquadFilter();
+        lp.type = 'lowpass'; lp.frequency.value = 350 + Math.random() * 150;
+        const gain = this.ctx.createGain(); gain.gain.value = 0.45;
+        src.connect(lp); lp.connect(gain); gain.connect(this.ctx.destination);
+        src.start();
     }
 }
