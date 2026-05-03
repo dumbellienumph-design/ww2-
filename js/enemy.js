@@ -3,12 +3,16 @@ import * as CANNON from 'cannon-es';
 import { VFX } from './vfx.js';
 
 const STATE = { PATROL: 0, ALERT: 1, ATTACK: 2 };
+const ENEMY_GROUP = 2;
+const PLAYER_GROUP = 1;
+const GROUND_GROUP = 4;
 
 export class Enemy {
-    constructor(scene, world, terrain, position) {
+    constructor(scene, world, terrain, position, game) {
         this.scene = scene;
         this.world = world;
         this.terrain = terrain;
+        this.game = game;
 
         this.maxHealth = 100;
         this.health = 100;
@@ -24,26 +28,24 @@ export class Enemy {
         this.shootTimer = 1 + Math.random() * 2;
         this.alertTimer = 0;
         this.animTimer = Math.random() * 10;
+        this.bullets = [];
 
         this.group = new THREE.Group();
+        this.group.userData.gameEntity = this;
         this.scene.add(this.group);
 
         this.healthBarGroup = new THREE.Group();
         this.scene.add(this.healthBarGroup);
 
         this.initPhysics(position);
-        // Sync group to spawn position immediately so meshes appear at correct spot
         this.group.position.set(position.x, position.y, position.z);
         this.initVisuals();
         this.initHealthBar();
-        console.log('[Enemy] spawned at', position.x.toFixed(1), position.y.toFixed(1), position.z.toFixed(1));
-
-        this.group.layers.enable(1);
+        
         this.group.traverse(child => {
-            child.layers.enable(1);
+            child.userData.gameEntity = this;
         });
 
-        // Waypoints generated lazily on first update (terrain may not be set yet)
         this._waypointsReady = false;
     }
 
@@ -64,23 +66,19 @@ export class Enemy {
             shape: new CANNON.Box(new CANNON.Vec3(0.4, 0.9, 0.4)),
             position: new CANNON.Vec3(position.x, position.y, position.z),
             fixedRotation: true,
-            linearDamping: 0.5
+            linearDamping: 0.5,
+            collisionFilterGroup: ENEMY_GROUP,
+            collisionFilterMask: PLAYER_GROUP | GROUND_GROUP | ENEMY_GROUP
         });
         this.world.addBody(this.body);
         this.body.mesh = this.group;
+        this.body.userData = { gameEntity: this };
         this.body.onHit = (damage) => this.takeDamage(damage);
     }
 
     initVisuals() {
-        // Body center is at this.body.position.y, which is kept at groundY + 0.9 by the physics system.
-        // This means the bottom of the physics body is at groundY.
-        // The visual group is centered at the body position.
-        // Therefore, a mesh's world position is its relative position + this.body.position.
-        // To make the legs touch the ground, their bottom edge must be at a relative Y of -0.9.
-        // For a leg mesh of height 0.9, its center must be at y = -0.9 + (0.9 / 2) = -0.45.
-        // The requested -0.65 with a height of 0.5 would result in a bottom of -0.9, which is also correct. Let's use that.
         const legHeight = 0.5;
-        const legY = -0.65; // Centered to touch the bottom at -0.9
+        const legY = -0.65;
 
         const uniformMat = new THREE.MeshStandardMaterial({ color: 0x4a4e4d });
         const skinMat = new THREE.MeshStandardMaterial({ color: 0xdbac98 });
@@ -121,7 +119,7 @@ export class Enemy {
         this.armGroup.add(armR);
 
         this.weapon = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.1, 1.0), gearMat);
-        this.weapon.position.set(0.2, -0.2, -0.4);
+        this.weapon.position.set(0, -0.2, -0.4);
         this.armGroup.add(this.weapon);
     }
 
@@ -130,7 +128,7 @@ export class Enemy {
             new THREE.PlaneGeometry(1.2, 0.15),
             new THREE.MeshBasicMaterial({ color: 0x00ff00, side: THREE.DoubleSide })
         );
-        bar.position.y = 1.2; // FIX: Health bar position adjusted
+        bar.position.y = 1.2;
         this.healthBar = bar;
         this.healthBarGroup.add(bar);
 
@@ -138,7 +136,7 @@ export class Enemy {
             new THREE.PlaneGeometry(1.3, 0.2),
             new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide })
         );
-        bg.position.set(0, 1.2, -0.01); // FIX: Health bar position adjusted
+        bg.position.set(0, 1.2, -0.01);
         this.healthBarBg = bg;
         this.healthBarGroup.add(bg);
     }
@@ -150,21 +148,16 @@ export class Enemy {
         this.healthBar.scale.x = pct;
         this.healthBar.material.color.setHSL(pct * 0.3, 1, 0.5);
 
-        // Become alert/aggressive when hit
         this.state = STATE.ALERT;
         this.alertTimer = 12;
 
-        if (this.health <= 0) this._die();
+        if (this.health <= 0) this.destroy();
     }
 
     destroy() {
-        this._die();
-    }
-
-    _die() {
         if (this.isDead) return;
         this.isDead = true;
-        if (window.game) window.game.onEnemyKilled();
+        if (this.game) this.game.onEnemyKilled(this);
 
         const partData = [
             { mesh: this.torso, size: [0.6, 0.7, 0.3] },
@@ -177,7 +170,6 @@ export class Enemy {
             return { ...p, worldPos, worldQuat: p.mesh.getWorldQuaternion(new THREE.Quaternion()) };
         });
 
-        // FIX: Dispose of geometries and materials to prevent memory leaks
         this.group.traverse(child => {
             if (child.isMesh) {
                 child.geometry.dispose();
@@ -195,8 +187,7 @@ export class Enemy {
         this.scene.remove(this.healthBarGroup);
         this.world.removeBody(this.body);
 
-        const ragdollStartTime = Date.now();
-        partData.forEach(pd => {
+        const ragdolls = partData.map(pd => {
             const m = pd.mesh.clone();
             m.position.copy(pd.worldPos);
             m.quaternion.copy(pd.worldQuat);
@@ -211,26 +202,13 @@ export class Enemy {
             rb.velocity.set((Math.random() - 0.5) * 4, Math.random() * 4, (Math.random() - 0.5) * 4);
             rb.angularVelocity.set((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8);
             this.world.addBody(rb);
-
-            const tick = () => {
-                if (!this.scene.getObjectById(m.id)) {
-                    if (this.world.bodies.includes(rb)) this.world.removeBody(rb);
-                    return;
-                }
-                m.position.copy(rb.position);
-                m.quaternion.copy(rb.quaternion);
-                if (rb.sleepState < 2 && (Date.now() - ragdollStartTime) < 6000) {
-                    requestAnimationFrame(tick);
-                } else {
-                    this.scene.remove(m);
-                    // FIX: Dispose of ragdoll part geometry and material
-                    m.geometry.dispose();
-                    if (m.material.isMaterial) m.material.dispose();
-                    if (this.world.bodies.includes(rb)) this.world.removeBody(rb);
-                }
-            };
-            tick();
+            
+            return { mesh: m, body: rb, life: 6.0 };
         });
+
+        if (this.game) {
+            this.game.addRagdolls(ragdolls);
+        }
     }
 
     _snapToTerrain(x, z) {
@@ -242,10 +220,11 @@ export class Enemy {
         const target = this.waypoints[this.currentWaypoint];
         const dx = target.x - myPos.x;
         const dz = target.z - myPos.z;
-        const dist = Math.sqrt(dx * dx + dz * dz);
-        if (dist < 3) {
+        const distSq = dx * dx + dz * dz;
+        if (distSq < 9) {
             this.currentWaypoint = (this.currentWaypoint + 1) % this.waypoints.length;
         } else {
+            const dist = Math.sqrt(distSq);
             const spd = this.speed * 0.55;
             this.body.velocity.x = (dx / dist) * spd;
             this.body.velocity.z = (dz / dist) * spd;
@@ -294,40 +273,16 @@ export class Enemy {
 
     _fireAt(targetPos, player) {
         const startPos = new THREE.Vector3();
-        this.torso.getWorldPosition(startPos);
-        startPos.y += 0.5;
+        this.weapon.getWorldPosition(startPos);
 
         const dir = new THREE.Vector3().subVectors(targetPos, startPos).normalize();
-        dir.x += (Math.random() - 0.5) * 0.08;
-        dir.z += (Math.random() - 0.5) * 0.08;
+        dir.x += (Math.random() - 0.5) * 0.1;
+        dir.y += (Math.random() - 0.5) * 0.1;
+        dir.z += (Math.random() - 0.5) * 0.1;
         dir.normalize();
 
-        const bullet = new THREE.Mesh(
-            new THREE.SphereGeometry(0.08, 4, 4),
-            new THREE.MeshBasicMaterial({ color: 0xff4400 })
-        );
-        bullet.position.copy(startPos);
-        this.scene.add(bullet);
-
-        const t0 = Date.now();
-        const step = () => {
-            if (Date.now() - t0 > 2000 || this.isDead) { 
-                this.scene.remove(bullet); 
-                bullet.geometry.dispose();
-                bullet.material.dispose();
-                return; 
-            }
-            bullet.position.add(dir.clone().multiplyScalar(1.3));
-            if (player && !player.isDead && bullet.position.distanceTo(player.body.position) < 2) {
-                player.takeDamage(8);
-                this.scene.remove(bullet);
-                bullet.geometry.dispose();
-                bullet.material.dispose();
-                return;
-            }
-            requestAnimationFrame(step);
-        };
-        step();
+        const bulletSpeed = 120;
+        window.game.projectiles.spawnProjectile(startPos, dir, bulletSpeed, 8, this);
     }
 
     update(delta, playerPos, player) {
@@ -336,7 +291,6 @@ export class Enemy {
 
         const myPos = this.body.position;
 
-        // Terrain snap
         const groundY = this._snapToTerrain(myPos.x, myPos.z);
         const halfHeight = this.body.shapes[0].halfExtents.y;
         if (myPos.y < groundY + halfHeight) {
@@ -346,15 +300,12 @@ export class Enemy {
 
         const distToPlayer = myPos.distanceTo(playerPos);
 
-        // State transitions
         if (this.state === STATE.PATROL && distToPlayer < this.awarenessDistance) {
-            // FIX: Add Field-of-View check for more realistic awareness
             const forward = new THREE.Vector3();
             this.group.getWorldDirection(forward);
             const toPlayer = new THREE.Vector3().subVectors(playerPos, myPos).normalize();
             const dot = forward.dot(toPlayer);
 
-            // Aware if player is in ~120 degree FOV or very close
             if (dot > 0.5 || distToPlayer < 10) {
                 this.state = STATE.ALERT;
                 this.alertTimer = 15;

@@ -6,147 +6,163 @@ export class ModernTank extends Tank {
         super(scene, world, terrain, position, audio, particles);
     }
     initVisuals() {
-        // Materials as per description
-        const matteGrey = new THREE.MeshStandardMaterial({ 
-            color: 0x888899, // Battleship/Steel grey
-            roughness: 0.9, 
-            metalness: 0.2 
-        });
+        const matteGrey = new THREE.MeshStandardMaterial({ color: 0x888899, roughness: 0.9, metalness: 0.2 });
         const darkRubber = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 1.0, metalness: 0.0 });
+        const whiteRubber = new THREE.MeshStandardMaterial({ color: 0xdddddd });
         const sensorGlass = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x002222, roughness: 0.1 });
         const crewSkin = new THREE.MeshStandardMaterial({ color: 0xd2b48c });
-        const crewHair = new THREE.MeshStandardMaterial({ color: 0x221100 }); // Dark hair
+        const crewHair = new THREE.MeshStandardMaterial({ color: 0x221100 });
 
         const vOffset = -0.5;
+        this.group.clear();
         
-        this.group.clear(); // Clear default visuals
-        
-        // --- HULL (Extremely Angular/Faceted) ---
+        // --- HULL ---
         const hullGroup = new THREE.Group();
         hullGroup.position.y = 0.6 + vOffset;
         this.group.add(hullGroup);
 
-        // Main hull box
-        const hullMainGeo = new THREE.BoxGeometry(5.2, 1.2, 8.5);
-        const hullMain = new THREE.Mesh(hullMainGeo, matteGrey);
+        const hullMain = new THREE.Mesh(new THREE.BoxGeometry(5.2, 1.2, 8.5), matteGrey);
         hullGroup.add(hullMain);
 
-        // Sharply raked glacis plate (front)
-        const glacisGeo = new THREE.BoxGeometry(5.2, 0.2, 3.5);
-        const glacis = new THREE.Mesh(glacisGeo, matteGrey);
+        const glacis = new THREE.Mesh(new THREE.BoxGeometry(5.2, 0.2, 3.5), matteGrey);
         glacis.rotation.x = -0.6;
         glacis.position.set(0, 0.6, -3.8);
         hullGroup.add(glacis);
 
-        // Angled side skirts (multi-layered aesthetic)
-        const skirtGeo = new THREE.BoxGeometry(0.3, 0.8, 8.8);
-        const skirtL = new THREE.Mesh(skirtGeo, matteGrey);
+        // Lower hull front wedge/chevron
+        const chevron = new THREE.Mesh(new THREE.BoxGeometry(3.0, 0.6, 0.2), matteGrey);
+        chevron.position.set(0, -0.3, -4.2);
+        chevron.rotation.x = 0.3;
+        hullGroup.add(chevron);
+
+        const skirtL = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.8, 8.8), matteGrey);
         skirtL.position.set(-2.7, -0.2, 0);
         hullGroup.add(skirtL);
-        const skirtR = skirtL.clone();
-        skirtR.position.x = 2.7;
-        hullGroup.add(skirtR);
+        const skirtR = skirtL.clone(); skirtR.position.x = 2.7; hullGroup.add(skirtR);
 
-        // Tracks (Visible below skirts)
-        const trackGeo = new THREE.BoxGeometry(1.0, 0.6, 8.2);
-        const trackL = new THREE.Mesh(trackGeo, darkRubber);
+        // --- ROAD WHEELS (Refined with rims) ---
+        const wheelTireGeo = new THREE.CylinderGeometry(0.45, 0.45, 0.3, 16);
+        wheelTireGeo.rotateZ(Math.PI / 2);
+        const wheelRimGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.32, 16);
+        wheelRimGeo.rotateZ(Math.PI / 2);
+
+        for (let i = 0; i < 6; i++) {
+            const wz = -2.8 + i * 1.2;
+            const wlGroup = new THREE.Group();
+            wlGroup.position.set(-2.1, -0.4, wz);
+            
+            const tire = new THREE.Mesh(wheelTireGeo, darkRubber);
+            const rim = new THREE.Mesh(wheelRimGeo, whiteRubber);
+            wlGroup.add(tire);
+            wlGroup.add(rim);
+            
+            hullGroup.add(wlGroup);
+            const wrGroup = wlGroup.clone(); wrGroup.position.x = 2.1; hullGroup.add(wrGroup);
+        }
+
+        const trackL = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.4, 8.2), darkRubber);
         trackL.position.set(-2.1, -0.4, 0);
         hullGroup.add(trackL);
-        const trackR = trackL.clone();
-        trackR.position.x = 2.1;
-        hullGroup.add(trackR);
+        const trackR = trackL.clone(); trackR.position.x = 2.1; hullGroup.add(trackR);
 
-        // --- TURRET (Large, Low-profile, Trapezoidal) ---
+        // --- CREW (Moved to Hull so they don't rotate with turret) ---
+        const driverGroup = new THREE.Group();
+        driverGroup.position.set(-0.8, 0.6, -1.5); // Positioned on hull
+        hullGroup.add(driverGroup);
+
+        const hatchBase = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 0.1, 16), matteGrey);
+        hatchBase.position.y = 0.1;
+        driverGroup.add(hatchBase);
+        
+        const shoulders = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.4, 0.3), darkRubber);
+        shoulders.position.y = 0.3;
+        driverGroup.add(shoulders);
+
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.22), crewSkin);
+        head.position.y = 0.6;
+        driverGroup.add(head);
+
+        const hair = new THREE.Mesh(new THREE.SphereGeometry(0.23, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), crewHair);
+        hair.position.y = 0.02; // relative to head
+        head.add(hair); // Attached to head
+
+        // --- TURRET (Trapezoidal) ---
         this.turretGroup = new THREE.Group();
         this.turretGroup.position.set(0, 1.3 + vOffset, -0.5);
         this.group.add(this.turretGroup);
 
-        // Main Turret Body (Trapezoidal look via scaling or custom geo - using boxes for now)
-        const turretMainGeo = new THREE.BoxGeometry(3.8, 0.8, 5.5);
-        const turretMain = new THREE.Mesh(turretMainGeo, matteGrey);
+        const turretGeo = new THREE.CylinderGeometry(2.5, 3.8, 0.8, 4);
+        turretGeo.rotateY(Math.PI / 4);
+        const turretMain = new THREE.Mesh(turretGeo, matteGrey);
+        turretMain.scale.set(1.0, 1.0, 1.4);
         this.turretGroup.add(turretMain);
 
-        // Recessed panels/vents on sides
+        // Recessed side vents
         const ventGeo = new THREE.BoxGeometry(0.1, 0.4, 2.0);
         const ventL = new THREE.Mesh(ventGeo, darkRubber);
-        ventL.position.set(-1.91, 0, 0);
-        this.turretGroup.add(ventL);
-        const ventR = ventL.clone();
-        ventR.position.x = 1.91;
-        this.turretGroup.add(ventR);
+        ventL.position.set(-1.9, 0, 0); this.turretGroup.add(ventL);
+        const ventR = ventL.clone(); ventR.position.x = 1.9; this.turretGroup.add(ventR);
+        
+        // Additional vents
+        const ventL2 = ventL.clone(); ventL2.position.z = 1.2; this.turretGroup.add(ventL2);
+        const ventR2 = ventR.clone(); ventR2.position.z = 1.2; this.turretGroup.add(ventR2);
 
-        // Flat top equipment (Laser rangefinder, Sensors, EW modules)
+        // Detailed Equipment
+        // Laser rangefinder (left)
+        const rfGroup = new THREE.Group();
+        rfGroup.position.set(-1.2, 0.6, -1.5);
+        this.turretGroup.add(rfGroup);
         const rangeFinder = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.4, 0.5), matteGrey);
-        rangeFinder.position.set(-1.2, 0.6, -1.5);
-        this.turretGroup.add(rangeFinder);
+        rfGroup.add(rangeFinder);
+        const rfLens = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.2), sensorGlass);
+        rfLens.position.set(0, 0, -0.26); rfGroup.add(rfLens);
+        const rfDetail = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.1, 0.1), darkRubber);
+        rfDetail.position.set(0.2, 0.15, -0.2); rfGroup.add(rfDetail);
         
-        const sensorLens = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.2), sensorGlass);
-        sensorLens.position.set(-1.2, 0.6, -1.76);
-        this.turretGroup.add(sensorLens);
-
+        // Cylindrical sensor (center-rear)
+        const sensorGroup = new THREE.Group();
+        sensorGroup.position.set(0, 0.8, 1.5);
+        this.turretGroup.add(sensorGroup);
         const cylindricalSensor = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.8, 12), matteGrey);
-        cylindricalSensor.position.set(0, 0.8, 1.5);
-        this.turretGroup.add(cylindricalSensor);
+        sensorGroup.add(cylindricalSensor);
+        const sensorTop = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.1, 12), darkRubber);
+        sensorTop.position.y = 0.4; sensorGroup.add(sensorTop);
 
+        // EW modules
+        const ewGroup = new THREE.Group();
+        ewGroup.position.set(1.0, 0.7, 0.5);
+        this.turretGroup.add(ewGroup);
         const ewModule = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 0.6), matteGrey);
-        ewModule.position.set(1.0, 0.7, 0.5);
-        this.turretGroup.add(ewModule);
+        ewGroup.add(ewModule);
+        const ewAntenna = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 1.2), darkRubber);
+        ewAntenna.position.set(0.2, 0.6, 0.2); ewGroup.add(ewAntenna);
 
-        // --- CREW (Driver/Commander Hatch Open) ---
-        const hatchBase = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 0.1, 16), matteGrey);
-        hatchBase.position.set(0.8, 0.45, -0.5);
-        this.turretGroup.add(hatchBase);
-        
-        const hatchLid = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 0.05, 16), matteGrey);
-        hatchLid.position.set(0.8, 0.5, 0.1);
-        hatchLid.rotation.x = 1.5;
-        this.turretGroup.add(hatchLid);
-
-        // Crew Member (Short dark hair, shoulders up)
-        const shoulders = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.4, 0.3), darkRubber);
-        shoulders.position.set(0.8, 0.4, -0.5);
-        this.turretGroup.add(shoulders);
-
-        const head = new THREE.Mesh(new THREE.SphereGeometry(0.22), crewSkin);
-        head.position.set(0.8, 0.7, -0.5);
-        this.turretGroup.add(head);
-
-        const hair = new THREE.Mesh(new THREE.SphereGeometry(0.23, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), crewHair);
-        hair.position.set(0.8, 0.72, -0.5);
-        this.turretGroup.add(hair);
-
-        // --- GUN (Long, Smooth, Thick, Slightly Left) ---
+        // --- GUN ---
         this.barrelGroup = new THREE.Group();
-        this.barrelGroup.position.set(-0.4, 0.1, -2.5); // Slightly left of center
+        this.barrelGroup.position.set(-0.4, 0.1, -2.5); 
         this.turretGroup.add(this.barrelGroup);
 
         const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.35, 7.5), matteGrey);
-        barrel.rotateX(Math.PI / 2);
-        barrel.position.z = -3.75;
+        barrel.rotateX(Math.PI / 2); barrel.position.z = -3.75;
         this.barrelGroup.add(barrel);
 
-        // Cylindrical muzzle brake/evacuator near tip
         const muzzleBrake = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 1.2, 16), darkRubber);
-        muzzleBrake.rotateX(Math.PI / 2);
-        muzzleBrake.position.z = -7.0;
+        muzzleBrake.rotateX(Math.PI / 2); muzzleBrake.position.z = -7.0;
         this.barrelGroup.add(muzzleBrake);
 
-        // Anchors for Camera
-        this.chaseCameraAnchor = new THREE.Object3D();
-        this.chaseCameraAnchor.position.set(0, 6, 12);
-        this.group.add(this.chaseCameraAnchor);
-        this.sniperCameraAnchor = new THREE.Object3D();
-        this.sniperCameraAnchor.position.set(0, 0.5, -1.0);
-        this.turretGroup.add(this.sniperCameraAnchor);
-
+        // Anchors
+        this.chaseCameraAnchor = new THREE.Object3D(); this.chaseCameraAnchor.position.set(0, 6, 12); this.group.add(this.chaseCameraAnchor);
+        this.sniperCameraAnchor = new THREE.Object3D(); this.sniperCameraAnchor.position.set(0, 0.5, -1.0); this.turretGroup.add(this.sniperCameraAnchor);
+        
         // Exhausts
         this.exhaustL = new THREE.Object3D(); this.exhaustL.position.set(-1.0, 1.0 + vOffset, 4.0); this.group.add(this.exhaustL);
         this.exhaustR = new THREE.Object3D(); this.exhaustR.position.set(1.0, 1.0 + vOffset, 4.0); this.group.add(this.exhaustR);
-        
+
+        // Minimap Icon
+        const icon = new THREE.Mesh(new THREE.BoxGeometry(4, 1, 6), new THREE.MeshBasicMaterial({ color: 0x00ff00 }));
+        icon.position.y = 50; icon.layers.set(1); this.group.add(icon);
+
         this.group.layers.enable(1);
-        this.group.traverse(child => {
-            child.layers.enable(1);
-        });
+        this.group.traverse(child => { child.layers.enable(1); });
     }
 }
-

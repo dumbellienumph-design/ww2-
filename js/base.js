@@ -10,6 +10,7 @@ export class Base {
         this.particles = particles;
         this.terrain = terrain;
         this.isEnemy = isEnemy;
+        this.physicsBodies = [];
         
         // Update position Y based on terrain
         this.position.y = this.terrain.getHeight(position.x, position.z);
@@ -37,8 +38,6 @@ export class Base {
         this.group.traverse(child => {
             child.layers.enable(1);
         });
-
-        this.physicsBodies = [];
     }
 
     destroy() {
@@ -149,6 +148,17 @@ export class Base {
         const body = new CANNON.Body({ mass: 0, shape: new CANNON.Box(new CANNON.Vec3(w/2, h/2, l/2)) });
         body.position.set(worldX, groundY + h/2, worldZ);
         body.mesh = main;
+        body.health = 500;
+        body.onHit = (damage) => {
+            body.health -= damage;
+            if (body.health <= 0) {
+                VFX.createExplosion(this.scene, this.world, body.position, 15, 0, null);
+                this.group.remove(bGroup);
+                this.world.removeBody(body);
+                // Also create some debris
+                if (this.particles) this.particles.createMuzzleFlash(body.position, new THREE.Vector3(0, 1, 0), true);
+            }
+        };
         this._addPhysicsBody(body);
     }
 
@@ -184,6 +194,15 @@ export class Base {
 
         const body = new CANNON.Body({ mass: 0, shape: new CANNON.Box(new CANNON.Vec3(3, 6, 3)) });
         body.position.set(worldX, groundY + 6, worldZ);
+        body.health = 300;
+        body.onHit = (damage) => {
+            body.health -= damage;
+            if (body.health <= 0) {
+                VFX.createExplosion(this.scene, this.world, body.position, 12, 0, null);
+                this.group.remove(tw);
+                this.world.removeBody(body);
+            }
+        };
         this._addPhysicsBody(body);
     }
 

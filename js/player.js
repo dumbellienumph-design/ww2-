@@ -14,7 +14,7 @@ export class Player {
         this.baseFOV = 75;
         this.camera = new THREE.PerspectiveCamera(this.baseFOV, window.innerWidth / window.innerHeight, 0.1, 5000);
         this.camera.rotation.order = 'YXZ';
-        this.camera.layers.enable(1);
+        this.camera.layers.enable(1); // So it can see the gun model on layer 1
 
         this.walkSpeed = 24;
         this.sprintSpeed = 40;
@@ -23,15 +23,28 @@ export class Player {
         this.bandages = 3;
         this.isDead = false;
         this.isSprinting = false;
+        
         this.isReloading = false;
-        this.lastDamageTime = -99999;
+        this.reloadTimer = 0;
+        this.autoReloadTimer = 0;
+
+        this.lastDamageTime = -Infinity;
+        this.healthRegenDelay = 5; // seconds
+        this.healthRegenRate = 3; // hp per second
+        
         this.footstepTimer = 0;
         this.canJump = false;
+
+        this.suppressionOverlayTimer = 0;
+        this.hitmarkerTimer = 0;
 
         this.moveState = {
             forward: false, backward: false, left: false, right: false,
             jump: false, shoot: false, ads: false
         };
+
+        this.isDriving = false;
+        this.drivingTank = null;
 
         this.weapons = [{
             name: 'M1 Garand', fireRate: 0.45, damage: 35,
@@ -54,16 +67,23 @@ export class Player {
 
     initPhysics() {
         const material = new CANNON.Material("playerMaterial");
+        const PLAYER_GROUP = 1;
+
         this.body = new CANNON.Body({
             mass: 80,
             shape: new CANNON.Sphere(1.5),
             fixedRotation: true,
             linearDamping: 0.5,
             position: new CANNON.Vec3(0, 100, 0),
-            material: material
+            material: material,
+            collisionFilterGroup: PLAYER_GROUP,
+            collisionFilterMask: -1 // Collide with everything
         });
+
+        this.body.userData = { isPlayer: true, gameEntity: this };
         this.body.addEventListener('collide', (e) => { if (e.contact.ni.y > 0.1) this.canJump = true; });
         this.world.addBody(this.body);
+
         const groundMat = new CANNON.Material("groundMaterial");
         this.world.bodies.forEach(b => { if (b.mass === 0) b.material = groundMat; });
         const cm = new CANNON.ContactMaterial(material, groundMat, {
@@ -94,15 +114,15 @@ export class Player {
         document.removeEventListener('mousedown', this.handleMouseDown);
         document.removeEventListener('mouseup', this.handleMouseUp);
 
-        if (this._reloadTimer) clearTimeout(this._reloadTimer);
+        // No more setTimeouts for game logic, but keep UX related ones if any
         if (this._lockTimer) clearTimeout(this._lockTimer);
 
-        this.scene.remove(this.camera);
-        this.world.removeBody(this.body);
+        if (this.camera) this.scene.remove(this.camera);
+        if (this.body) this.world.removeBody(this.body);
     }
 
     handleMouseMove(e) {
-        if (document.pointerLockElement === this.domElement) {
+        if (document.pointerLockElement === this.domElement && !window.game.isPaused) {
             const s = 0.002;
             this.yaw -= e.movementX * s;
             this.pitch -= e.movementY * s;
@@ -113,12 +133,15 @@ export class Player {
     handleKeyDown(e) { this.onKey(e.code, true); }
     handleKeyUp(e) { this.onKey(e.code, false); }
     handleMouseDown(e) {
-        if (document.pointerLockElement === this.domElement && e.button === 0) this.moveState.shoot = true;
+        if (document.pointerLockElement === this.domElement && e.button === 0 && !window.game.isPaused) {
+            this.moveState.shoot = true;
+        }
     }
     handleMouseUp(e) {
-        if (document.pointerLockElement === this.domElement && e.button === 0) this.moveState.shoot = false;
+        if (document.pointerLockElement === this.domElement && e.button === 0) {
+            this.moveState.shoot = false;
+        }
     }
-
 
     onKey(code, isPressed) {
         switch (code) {
@@ -126,11 +149,73 @@ export class Player {
             case 'KeyS': this.moveState.backward = isPressed; break;
             case 'KeyA': this.moveState.left = isPressed; break;
             case 'KeyD': this.moveState.right = isPressed; break;
+            case 'KeyE': if (isPressed) this.toggleVehicle(); break;
             case 'Space': this.moveState.jump = isPressed; break;
             case 'ShiftLeft': case 'ShiftRight': this.isSprinting = isPressed; break;
             case 'KeyF': if (isPressed) this.useBandage(); break;
             case 'KeyR': if (isPressed) this.reload(); break;
         }
+    }
+
+    toggleVehicle() {
+        if (this.isDriving) {
+            this.exitTank();
+        } else {
+            // Find nearest tank
+            let nearest = null;
+            let minDist = 10;
+            const tanks = [window.game.modernTank, ...window.game.spawnedTanks].filter(t => t && !t.isDestroyed);
+            tanks.forEach(t => {
+                const dist = this.body.position.distanceTo(t.body.position);
+                if (dist < minDist) {
+                    minDist = dist;
+                    nearest = t;
+                }
+            });
+
+            if (nearest) {
+                this.enterTank(nearest);
+            }
+        }
+    }
+
+    enterTank(tank) {
+        this.isDriving = true;
+        this.drivingTank = tank;
+        tank.isOccupied = true;
+        this.body.mass = 0;
+        this.body.type = CANNON.Body.KINEMATIC;
+        this.body.collisionFilterMask = 0; // Don't collide with anything while in tank
+        this.gunGroup.visible = false;
+        
+        // Hide crosshair UI if any, show tank UI
+        const hint = document.getElementById('tactical-notify');
+        if (hint) {
+            const el = document.createElement('div');
+            el.className = 'xp-popup';
+            el.textContent = 'VEHICLE ENTERED';
+            hint.appendChild(el);
+            setTimeout(() => el.remove(), 1500);
+        }
+    }
+
+    exitTank() {
+        if (!this.drivingTank) return;
+        const tank = this.drivingTank;
+        tank.isOccupied = false;
+        this.isDriving = false;
+        this.drivingTank = null;
+        
+        this.body.mass = 80;
+        this.body.type = CANNON.Body.DYNAMIC;
+        this.body.collisionFilterMask = -1;
+        
+        // Position player next to tank
+        const exitOffset = new THREE.Vector3(5, 2, 0).applyQuaternion(tank.group.quaternion);
+        this.body.position.set(tank.body.position.x + exitOffset.x, tank.body.position.y + exitOffset.y, tank.body.position.z + exitOffset.z);
+        this.body.velocity.set(0, 0, 0);
+        
+        this.gunGroup.visible = true;
     }
 
     initWeaponVisuals() {
@@ -174,11 +259,14 @@ export class Player {
     takeDamage(amount) {
         if (this.isDead) return;
         this.health = Math.max(0, this.health - amount);
-        this.lastDamageTime = Date.now();
+        this.lastDamageTime = window.game.elapsedTime;
         this.updateHealthUI();
 
         const overlay = document.getElementById('suppression-overlay');
-        if (overlay) { overlay.classList.add('active'); setTimeout(() => overlay.classList.remove('active'), 350); }
+        if (overlay) {
+            overlay.classList.add('active');
+            this.suppressionOverlayTimer = 0.35; // Start timer
+        }
 
         if (this.health <= 0) this._die();
     }
@@ -189,7 +277,7 @@ export class Player {
     }
 
     useBandage() {
-        if (this.bandages <= 0 || this.health >= this.maxHealth || this.isDead) return;
+        if (this.bandages <= 0 || this.health >= this.maxHealth || this.isDead || this.isReloading) return;
         this.bandages--;
         this.health = Math.min(this.maxHealth, this.health + 30);
         this.updateHealthUI();
@@ -212,17 +300,10 @@ export class Player {
     reload() {
         const w = this.weapons[this.currentWeaponIndex];
         if (this.isReloading || w.ammo >= w.capacity || w.reserve <= 0) return;
+        
         this.isReloading = true;
+        this.reloadTimer = w.reloadTime; // Set timer
         this.updateAmmoUI();
-        clearTimeout(this._reloadTimer);
-        this._reloadTimer = setTimeout(() => {
-            const needed = w.capacity - w.ammo;
-            const take = Math.min(needed, w.reserve);
-            w.ammo += take;
-            w.reserve -= take;
-            this.isReloading = false;
-            this.updateAmmoUI();
-        }, 2000);
     }
 
     updateBandageUI() {
@@ -233,16 +314,74 @@ export class Player {
     update(delta) {
         if (this.isDead) return;
 
+        if (this.isDriving && this.drivingTank) {
+            // Update tank with player controls
+            this.drivingTank.update(delta, this.moveState, this.camera);
+            
+            // Sync player position to tank (for UI/Minimap consistency)
+            this.body.position.copy(this.drivingTank.body.position);
+            
+            // Handle Camera for Tank
+            const anchor = this.moveState.ads ? this.drivingTank.sniperCameraAnchor : this.drivingTank.chaseCameraAnchor;
+            const targetPos = new THREE.Vector3();
+            anchor.getWorldPosition(targetPos);
+            const targetQuat = new THREE.Quaternion();
+            anchor.getWorldQuaternion(targetQuat);
+
+            this.camera.position.lerp(targetPos, 0.1);
+            if (this.moveState.ads) {
+                this.camera.quaternion.slerp(targetQuat, 0.1);
+            } else {
+                this.camera.rotation.set(this.pitch, this.yaw, 0);
+            }
+            
+            // Skip infantry updates
+            return;
+        }
+
+        // --- Timers ---
+        if (this.suppressionOverlayTimer > 0) {
+            this.suppressionOverlayTimer -= delta;
+            if (this.suppressionOverlayTimer <= 0) {
+                const overlay = document.getElementById('suppression-overlay');
+                if (overlay) overlay.classList.remove('active');
+            }
+        }
+        if (this.hitmarkerTimer > 0) {
+            this.hitmarkerTimer -= delta;
+            if (this.hitmarkerTimer <= 0) {
+                const hm = document.getElementById('hitmarker');
+                if (hm) hm.classList.remove('active');
+            }
+        }
+        if (this.autoReloadTimer > 0) {
+            this.autoReloadTimer -= delta;
+            if (this.autoReloadTimer <= 0) {
+                this.reload();
+            }
+        }
+        if (this.isReloading) {
+            this.reloadTimer -= delta;
+            if (this.reloadTimer <= 0) {
+                const w = this.weapons[this.currentWeaponIndex];
+                const needed = w.capacity - w.ammo;
+                const take = Math.min(needed, w.reserve);
+                w.ammo += take;
+                w.reserve -= take;
+                this.isReloading = false;
+                this.updateAmmoUI();
+            }
+        }
+
+        // --- Physics and Movement ---
         const groundY = this.terrain.getHeight(this.body.position.x, this.body.position.z);
         const minY = groundY + 1.5;
-        // Generous threshold; collision event also resets canJump
         this.canJump = (this.body.position.y <= minY + 0.5) || (Math.abs(this.body.velocity.y) < 0.5 && this.body.position.y < minY + 1.0);
         if (this.body.position.y < minY) {
             this.body.position.y = minY;
             this.body.velocity.y = Math.max(this.body.velocity.y, 0);
         }
 
-        // Terrain-slope-aware movement
         const pos = this.body.position;
         const eps = 1.0;
         const normal = new THREE.Vector3(
@@ -283,7 +422,7 @@ export class Player {
 
         if (this.moveState.jump && this.canJump) { this.body.velocity.y = 16; this.canJump = false; }
 
-        // Shooting (blocked during reload)
+        // --- Shooting ---
         const w = this.weapons[this.currentWeaponIndex];
         if (this.moveState.shoot && !this.isReloading) {
             this.fireTimer += delta;
@@ -294,100 +433,85 @@ export class Player {
 
         // Muzzle flash decay
         if (this.muzzleLight.intensity > 0) {
-            this.muzzleLight.intensity *= 0.6;
+            this.muzzleLight.intensity *= (1 - 40 * delta); // Smoother decay
             if (this.muzzleLight.intensity < 0.1) this.muzzleLight.intensity = 0;
         }
 
-        // Health regen after 5s with no damage
-        if ((Date.now() - this.lastDamageTime) > 5000 && this.health < this.maxHealth) {
-            this.health = Math.min(this.maxHealth, this.health + delta * 3);
+        // --- Health Regen ---
+        if ((window.game.elapsedTime - this.lastDamageTime) > this.healthRegenDelay && this.health < this.maxHealth) {
+            this.health = Math.min(this.maxHealth, this.health + this.healthRegenRate * delta);
             this.updateHealthUI();
         }
 
         this.camera.rotation.set(this.pitch, this.yaw, 0);
         this.camera.position.set(pos.x, pos.y + 1.8, pos.z);
 
-        // Advance projectile tracers
-        for (let i = this.projectiles.length - 1; i >= 0; i--) {
-            const p = this.projectiles[i];
-            p.life -= delta;
-            p.mesh.position.add(p.velocity.clone().multiplyScalar(delta));
-            if (p.life <= 0) {
-                this.scene.remove(p.mesh);
-                p.mesh.geometry.dispose();
-                p.mesh.material.dispose();
-                this.projectiles.splice(i, 1);
-            }
+        // --- Projectiles ---
+        // Projectiles are now handled by window.game.projectiles
         }
-    }
 
-    shoot() {
+        shoot() {
         const w = this.weapons[this.currentWeaponIndex];
         if (w.ammo <= 0 || this.isReloading) return;
         w.ammo--;
         this.updateAmmoUI();
-        if (w.ammo === 0) { setTimeout(() => this.reload(), 100); return; }
+        if (w.ammo === 0) { this.autoReloadTimer = 0.1; return; }
 
         if (this.audio) this.audio.playGunshot();
 
         const muzzlePos = new THREE.Vector3();
         this.muzzle.getWorldPosition(muzzlePos);
         const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
+
+        this.muzzleLight.position.copy(muzzlePos);
         this.muzzleLight.intensity = 40 + Math.random() * 20;
         if (this.particles) this.particles.createMuzzleFlash(muzzlePos, dir);
 
-        const raycaster = new THREE.Raycaster(this.camera.position, dir, 0, 1000);
-        raycaster.layers.set(0);
+        // --- NEW PROJECTILE SYSTEM ---
+        const tracerSpeed = 800;
+        window.game.projectiles.spawnProjectile(muzzlePos, dir, tracerSpeed, w.damage, this, true);
+
+        const raycaster = new THREE.Raycaster(this.camera.position, dir, 0.1, 2000);
+        raycaster.layers.enableAll();
+
         const intersects = raycaster.intersectObjects(this.scene.children, true);
-        let targetPoint = this.camera.position.clone().add(dir.clone().multiplyScalar(100));
-
-        let didHit = false;
         if (intersects.length > 0) {
-            const hit = intersects[0];
-            targetPoint = hit.point;
-            didHit = true;
-            if (hit.face) VFX.createImpactVFX(this.scene, hit.point, hit.face.normal);
-            if (this.terrain && hit.object.name === '') this.terrain.paintAt(hit.point, 1.5);
-            const body = this._findPhysicsBody(hit.object);
-            if (body && body.onHit) body.onHit(w.damage);
+            const hit = intersects.find(h => !h.object.layers.test(this.camera.layers));
+            if (hit) {
+                if (hit.face) VFX.createImpactVFX(this.scene, hit.point, hit.face.normal);
+
+                const hitObject = hit.object.userData.gameEntity || this._findPhysicsBody(hit.object);
+                if (hitObject && hitObject.onHit) {
+                    hitObject.onHit(w.damage);
+                } else if (this.terrain && hit.object === this.terrain.mesh) {
+                    this.terrain.paintAt(hit.point, 1.5);
+                }
+
+                const hm = document.getElementById('hitmarker');   
+                if (hm) {
+                    hm.classList.add('active');
+                    this.hitmarkerTimer = 0.15;
+                }
+            }
         }
-
-        // Tracer
-        const tracer = new THREE.Mesh(
-            new THREE.BoxGeometry(0.04, 0.04, 2.5),
-            new THREE.MeshBasicMaterial({ color: 0xffffaa })
-        );
-        tracer.layers.set(1);
-        tracer.position.copy(muzzlePos);
-        tracer.lookAt(targetPoint);
-        this.scene.add(tracer);
-        const dist = muzzlePos.distanceTo(targetPoint);
-        this.projectiles.push({
-            mesh: tracer,
-            velocity: new THREE.Vector3().subVectors(targetPoint, muzzlePos).normalize().multiplyScalar(400),
-            life: dist / 400
-        });
-
-        // Hitmarker
-        const hm = document.getElementById('hitmarker');
-        if (hm && didHit) {
-            hm.classList.add('active');
-            setTimeout(() => hm.classList.remove('active'), 150);
         }
-    }
-
     _findPhysicsBody(mesh) {
         let obj = mesh;
         while (obj) {
+            // Check for a direct link on userData
+            if (obj.userData.physicsBody) return obj.userData.physicsBody;
+            
+            // Fallback to iterating world bodies (less efficient)
             const body = this.world.bodies.find(b => b.mesh === obj);
             if (body) return body;
+            
             obj = obj.parent;
         }
         return null;
     }
 
     requestPointerLock() {
-        const elapsed = Date.now() - (window.game?._lockLostTime ?? 0);
+        const elapsed = (window.game ? window.game.elapsedTime * 1000 : 0) - (window.game?._lockLostTime ?? 0);
         const delay = Math.max(0, 1000 - elapsed);
         clearTimeout(this._lockTimer);
         this._lockTimer = setTimeout(() => {

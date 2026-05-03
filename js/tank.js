@@ -131,7 +131,6 @@ export class Tank {
     }
 
     update(delta, controls, camera) {
-        // ALWAYS sync visual position with physics body
         this.group.position.copy(this.body.position);
         this.group.quaternion.copy(this.body.quaternion);
 
@@ -148,42 +147,40 @@ export class Tank {
 
         if (!this.isOccupied) {
             if(this.reticle) this.reticle.visible = false;
-            if(this.audio && typeof this.audio.stop === 'function') this.audio.stop('tank_engine');
             return;
         }
 
+        const ctrl = controls.moveState || controls;
         const speed = this.body.velocity.length();
 
-        // --- FUEL DEGRADATION ---
         if(speed > 1) this.fuel -= delta * 0.1; 
-        if(this.fuel <= 0) { this.fuel = 0; controls.forward = false; controls.backward = false; }
+        
+        let moveForward = ctrl.forward && this.fuel > 0;
+        let moveBackward = ctrl.backward && this.fuel > 0;
 
-        // --- VISUAL DAMAGE STATES ---
         this.damageTimer += delta;
-        if (this.damageTimer > 0.2) {
+        if (this.damageTimer > 0.2 && !this.isDestroyed) {
             const worldPosL = new THREE.Vector3(); this.exhaustL.getWorldPosition(worldPosL);
             const worldPosR = new THREE.Vector3(); this.exhaustR.getWorldPosition(worldPosR);
             const smokeVel = new THREE.Vector3(0, 1, 2).applyQuaternion(this.group.quaternion);
             
             if(this.particles) {
                 if(this.health < 100) this.particles.createExhaustSmoke(worldPosL, smokeVel, true);
-                else this.particles.createExhaustSmoke(worldPosL, smokeVel, false);
+                else if (moveForward) this.particles.createExhaustSmoke(worldPosL, smokeVel, false);
                 
-                if(this.health < 50) this.particles.createFire(worldPosR);
+                if(this.health < 50) this.particles.createFire(worldPosR, 0.5, 0.5);
             }
             this.damageTimer = 0;
         }
 
         if (this.audio && typeof this.audio.play === 'function') {
             this.audio.play('tank_engine');
-            const pitchRate = 1.0 + (speed / 15) * 0.8;
-            if (typeof this.audio.setPlaybackRate === 'function') this.audio.setPlaybackRate('tank_engine', pitchRate);
         }
 
         const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.group.quaternion);
         let targetSpeed = 0;
-        if (controls.forward && this.fuel > 0) targetSpeed = 15;
-        else if (controls.backward && this.fuel > 0) targetSpeed = -10;
+        if (moveForward) targetSpeed = 15;
+        else if (moveBackward) targetSpeed = -10;
 
         const currentY = this.body.velocity.y;
         this.body.velocity.x = forward.x * targetSpeed;
@@ -191,17 +188,16 @@ export class Tank {
         this.body.velocity.y = currentY; 
 
         const turnSpeed = 1.5;
-        if (controls.left) this.body.angularVelocity.y = turnSpeed;
-        else if (controls.right) this.body.angularVelocity.y = -turnSpeed;
+        if (ctrl.left) this.body.angularVelocity.y = turnSpeed;
+        else if (ctrl.right) this.body.angularVelocity.y = -turnSpeed;
         else this.body.angularVelocity.y *= 0.5;
 
         this.body.angularVelocity.x *= 0.1;
         this.body.angularVelocity.z *= 0.1;
 
-        // --- TERRAIN SNAPPING ---
         if (this.terrain) {
             const groundY = this.terrain.getHeight(this.body.position.x, this.body.position.z);
-            const halfHeight = 0.5; // Adjusted to account for shape offset
+            const halfHeight = 0.5;
             if (this.body.position.y < groundY + halfHeight) {
                 this.body.position.y = groundY + halfHeight;
                 this.body.velocity.y = Math.max(0, this.body.velocity.y);
@@ -241,14 +237,16 @@ export class Tank {
             this.reticle.material.color.setHex(isAimed ? 0x00ff00 : 0xff0000);
         }
 
-        if (controls.shoot && this.ammo > 0) {
+        if (ctrl.shoot && this.ammo > 0) {
             this.fire();
-            controls.shoot = false;
+            ctrl.shoot = false;
         }
     }
 
     fire() {
+        if (this.ammo <= 0) return;
         this.ammo--;
+        
         if(this.audio && typeof this.audio.play === 'function') this.audio.play('tank_fire');
         const tip = new THREE.Vector3(0, 0, -6.5).applyMatrix4(this.barrelGroup.matrixWorld);
         const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(this.barrelGroup.getWorldQuaternion(new THREE.Quaternion()));
@@ -256,35 +254,15 @@ export class Tank {
 
         this.barrelGroup.position.z += 0.4;
         setTimeout(() => this.barrelGroup.position.z -= 0.4, 60);
-        const shellMesh = new THREE.Mesh(new THREE.SphereGeometry(0.4), new THREE.MeshBasicMaterial({ color: 0xffaa00 }));
-        this.scene.add(shellMesh);
-        const shellBody = new CANNON.Body({
-            mass: 25, shape: new CANNON.Sphere(0.4),
-            position: new CANNON.Vec3(tip.x, tip.y, tip.z),
-            velocity: new CANNON.Vec3(dir.x * 130, dir.y * 130, dir.z * 130)
-        });
-        this.world.addBody(shellBody);
-        shellBody.mesh = shellMesh;
-        const cleanup = () => {
-            if (!shellBody.world) return;
-            this.world.removeBody(shellBody);
-            this.scene.remove(shellMesh);
-            shellMesh.geometry.dispose();
-            shellMesh.material.dispose();
-        };
-
-        shellBody.addEventListener('collide', (e) => {
-            VFX.createExplosion(this.scene, this.world, shellBody.position.clone(), 15, 250, this.audio);
-            setTimeout(cleanup, 20);
-        });
-        setTimeout(cleanup, 5000);
+        
+        window.game.projectiles.spawnProjectile(tip, dir, 130, 250, this, false, true); 
     }
 
     destroy() {
         if (this.isDestroyed) return;
         this.isDestroyed = true;
 
-        if (this.body) {
+        if (this.body && this.world) {
             this.world.removeBody(this.body);
             this.body = null;
         }
@@ -293,11 +271,18 @@ export class Tank {
             this.scene.remove(this.group);
             this.group.traverse(child => {
                 if (child.isMesh) {
-                    child.geometry.dispose();
-                    if (child.material.isMaterial) {
-                        child.material.dispose();
-                    } else if (Array.isArray(child.material)) {
-                        child.material.forEach(material => material.dispose());
+                    if (child.geometry) child.geometry.dispose();
+                    if (child.material) {
+                        const materials = Array.isArray(child.material) ? child.material : [child.material];
+                        materials.forEach(m => {
+                            if (m.map) m.map.dispose();
+                            if (m.lightMap) m.lightMap.dispose();
+                            if (m.bumpMap) m.bumpMap.dispose();
+                            if (m.normalMap) m.normalMap.dispose();
+                            if (m.specularMap) m.specularMap.dispose();
+                            if (m.envMap) m.envMap.dispose();
+                            m.dispose();
+                        });
                     }
                 }
             });
@@ -305,8 +290,8 @@ export class Tank {
         
         if (this.reticle) {
             this.scene.remove(this.reticle);
-            this.reticle.geometry.dispose();
-            this.reticle.material.dispose();
+            if (this.reticle.geometry) this.reticle.geometry.dispose();
+            if (this.reticle.material) this.reticle.material.dispose();
         }
     }
 }

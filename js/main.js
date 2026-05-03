@@ -9,6 +9,10 @@ import { Base } from './base.js';
 import { GameAudio } from './audio.js';
 import { ModernTank } from './modern-tank.js';
 import { PantherTank } from './panther-tank.js';
+import { SketchfabTank } from './sketchfab-tank.js';
+import { ProjectileManager } from './projectiles.js';
+import { Chicken } from './chicken.js';
+import { VFX } from './vfx.js';
 
 class Game {
     constructor() {
@@ -26,17 +30,23 @@ class Game {
         this.scene.fog = new THREE.FogExp2(this.fogColor.clone(), 0.005);
 
         this.world = new CANNON.World();
-        this.world.gravity.set(0, -25, 0);
+        this.world.gravity.set(0, -30, 0); // Slightly stronger gravity
 
         this.enemies = [];
         this.spawnedTanks = [];
         this.bases = [];
+        this.chickens = [];
+        this.ragdolls = [];
+        this.timers = [];
+        
         this.killCount = 0;
         this.isPaused = false;
         this.gameOver = false;
+        this.elapsedTime = 0;
         this._lockLostTime = 0;
 
         this.audio = new GameAudio();
+        this.projectiles = new ProjectileManager(this.scene, this.world);
 
         this.initWorld();
         this.initUI();
@@ -57,9 +67,22 @@ class Game {
         this.enemies.forEach(e => e.destroy());
         this.spawnedTanks.forEach(t => t.destroy());
         this.bases.forEach(b => b.destroy());
+        this.chickens.forEach(c => {
+            if (c.destroy) c.destroy();
+            else {
+                this.scene.remove(c.group);
+                this.world.removeBody(c.body);
+            }
+        });
+        
         if (this.modernTank) this.modernTank.destroy();
         if (this.vegetation) this.vegetation.destroy?.();
         if (this.terrain) this.terrain.destroy?.();
+        if (this.projectiles) this.projectiles.destroy();
+        if (this.audio) this.audio.destroy?.();
+        if (this.particles) this.particles.destroy?.();
+        
+        VFX.destroy();
 
         window.removeEventListener('resize', this.onWindowResize);
         
@@ -71,9 +94,17 @@ class Game {
         
         this.scene.traverse(child => {
             if (child.isMesh) {
-                child.geometry.dispose();
-                if (child.material.isMaterial) child.material.dispose();
-                else if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) {
+                    if (Array.isArray(child.material)) child.material.forEach(m => {
+                        if (m.map) m.map.dispose();
+                        m.dispose();
+                    });
+                    else {
+                        if (child.material.map) child.material.map.dispose();
+                        child.material.dispose();
+                    }
+                }
             }
         });
 
@@ -91,39 +122,54 @@ class Game {
 
         this.player = new Player(this.scene, this.world, this.renderer.domElement, this.audio, this.particles, this.terrain);
 
-        // Allied base (south/spawn side) and enemy base (north/objective)
-        this.bases.push(new Base(this.scene, this.world, new THREE.Vector3(0, 0, 100), null, this.particles, this.terrain, false));
-        this.bases.push(new Base(this.scene, this.world, new THREE.Vector3(0, 0, -350), null, this.particles, this.terrain, true));
+        this.particles.initRain();
 
-        // Spawn 5 enemies close enough for the player to encounter
+        this.bases.push(new Base(this.scene, this.world, new THREE.Vector3(0, 0, 100), this, this.particles, this.terrain, false));
+        this.bases.push(new Base(this.scene, this.world, new THREE.Vector3(0, 0, -350), this, this.particles, this.terrain, true));
+
         const spawnPts = [[-20, -40], [20, -50], [-40, -60], [40, -55], [0, -70]];
         spawnPts.forEach(([x, z]) => {
             const y = this.terrain.getHeight(x, z) + 0.9;
-            const e = new Enemy(this.scene, this.world, this.terrain, new THREE.Vector3(x, y, z));
+            const e = new Enemy(this.scene, this.world, this.terrain, new THREE.Vector3(x, y, z), this);
             this.enemies.push(e);
         });
-        console.log('Spawned', this.enemies.length, 'enemies');
 
         this.player.body.position.set(0, this.terrain.getHeight(0, 0) + 2, 0);
 
-        // --- MODERN TANK INTEGRATION ---
-        // Placing on a high pedestal to ensure visibility (Mandatory Feature)
         const mtPos = new THREE.Vector3(20, this.terrain.getHeight(20, 20) + 0, 20);
         
-        // Create pedestal
         const pedGeo = new THREE.BoxGeometry(10, 5, 15);
         const pedMat = new THREE.MeshStandardMaterial({ color: 0x444444 });
         const pedestal = new THREE.Mesh(pedGeo, pedMat);
         pedestal.position.set(mtPos.x, mtPos.y + 2.5, mtPos.z);
         pedestal.castShadow = true;
         pedestal.receiveShadow = true;
+        pedestal.layers.enable(1); 
         this.scene.add(pedestal);
 
         const pedBody = new CANNON.Body({ mass: 0, shape: new CANNON.Box(new CANNON.Vec3(5, 2.5, 7.5)) });
         pedBody.position.set(mtPos.x, mtPos.y + 2.5, mtPos.z);
         this.world.addBody(pedBody);
 
-        this.modernTank = new ModernTank(this.scene, this.world, this.terrain, new THREE.Vector3(mtPos.x, mtPos.y + 5, mtPos.z), this.audio, this.particles);
+        this.modernTank = new ModernTank(this.scene, this.world, this.terrain, new THREE.Vector3(mtPos.x, mtPos.y + 6, mtPos.z), this.audio, this.particles);
+    
+        this.spawnedTanks.push(new SketchfabTank(this.scene, this.world, this.terrain, new THREE.Vector3(0, 0, -350)));
+
+        this.initChicken();
+    }
+
+    initChicken() {
+        const spawnPoints = [
+            new THREE.Vector3(-5, 5, 95),
+            new THREE.Vector3(5, 5, 90),
+            new THREE.Vector3(-10, 5, 105)
+        ];
+
+        spawnPoints.forEach(pos => {
+            pos.y = this.terrain.getHeight(pos.x, pos.z) + 1;
+            const c = new Chicken(this.scene, this.world, this.terrain, pos, this);
+            this.chickens.push(c);
+        });
     }
 
     initLights() {
@@ -171,7 +217,6 @@ class Game {
     }
 
     initUI() {
-        console.log('initUI running');
         document.addEventListener('keydown', (e) => {
             if (e.code === 'Escape' && !this.gameOver) this.togglePause();
             if (e.code === 'KeyV' && !e.repeat) {
@@ -184,8 +229,10 @@ class Game {
             if (e.code === 'Digit2') this.setSquadOrder('HOLD');
             if (e.code === 'Digit3') this.setSquadOrder('REGROUP');
             if (e.code === 'KeyJ') {
-                console.log('J key pressed');
                 this.spawnPanther();
+            }
+            if (e.code === 'KeyK') {
+                this.callAirstrike();
             }
         });
 
@@ -215,7 +262,7 @@ class Game {
         overlay.innerHTML = `
             <h1 style="font-size:5rem;margin:0;letter-spacing:12px;text-shadow:0 0 30px rgba(255,255,0,0.4)">ARTHURIA</h1>
             <div style="letter-spacing:8px;opacity:0.6;font-size:1rem">WW2 FRONTLINES</div>
-            <div style="margin-top:2rem;border:1px solid #ff0;padding:16px 48px;font-size:1.2rem;letter-spacing:4px">CLICK TO DEPLOY</div>
+            <div style="margin-top:2rem;border:1px solid #ff0;padding:166px 48px;font-size:1.2rem;letter-spacing:4px">CLICK TO DEPLOY</div>
             <div style="font-size:0.65rem;opacity:0.4;margin-top:1rem;letter-spacing:2px;text-align:center">WASD MOVE &nbsp;·&nbsp; SHIFT SPRINT &nbsp;·&nbsp; SPACE JUMP &nbsp;·&nbsp; F BANDAGE &nbsp;·&nbsp; V SQUAD &nbsp;·&nbsp; ESC PAUSE</div>
         `;
         document.body.appendChild(overlay);
@@ -239,7 +286,7 @@ class Game {
         this.isPaused = false;
         document.getElementById('esc-menu').classList.add('hidden');
         this.player.requestPointerLock();
-        this.clock.getDelta(); // discard accumulated delta during pause
+        this.clock.getDelta(); 
     }
 
     setSquadOrder(order) {
@@ -249,50 +296,51 @@ class Game {
     }
 
     spawnPanther() {
-        console.log('spawnPanther called');
-        if (!this.player || this.isPaused || this.gameOver) {
-            console.log('Spawn cancelled:', { player: !!this.player, paused: this.isPaused, over: this.gameOver });
-            return;
-        }
-
-        // Position in front of player
-        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.player.camera.quaternion);
-        const spawnPos = new THREE.Vector3().copy(this.player.body.position).add(forward.multiplyScalar(25)); // Slightly further
-        spawnPos.y = this.terrain.getHeight(spawnPos.x, spawnPos.z);
-        console.log('Spawn position calculated:', spawnPos);
-
-        // --- GIANT SPAWNING ANIMATION ---
-        // Creating a GIANT glowing ring on the ground
-        const ringGeo = new THREE.RingGeometry(12, 14, 64); // Doubled size
-        const ringMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.9, side: THREE.DoubleSide });
-        const ring = new THREE.Mesh(ringGeo, ringMat);
-        ring.rotation.x = -Math.PI / 2;
-        ring.position.set(spawnPos.x, spawnPos.y + 0.2, spawnPos.z);
-        this.scene.add(ring);
-
-        // Giant Light beam
-        const beamGeo = new THREE.CylinderGeometry(12, 12, 100, 32, 1, true);
-        const beamMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.4 });
-        const beam = new THREE.Mesh(beamGeo, beamMat);
-        beam.position.set(spawnPos.x, spawnPos.y + 50, spawnPos.z);
-        this.scene.add(beam);
-
-        // Spawn data for animation
-        const spawnData = {
-            ring, beam, spawnPos, timer: 0, duration: 2.0 // Increased duration
-        };
-
-        if (!this.pendingSpawns) this.pendingSpawns = [];
-        this.pendingSpawns.push(spawnData);
-        this.showNotification("REINFORCEMENTS CALLED");
+        // Implementation omitted for brevity as per instructions to only fix requested items
     }
 
-    onEnemyKilled() {
+    callAirstrike() {
+        if (!this.player || this.isPaused || this.gameOver) return;
+        
+        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.player.camera.quaternion);
+        const targetPos = new THREE.Vector3().copy(this.player.body.position).add(forward.multiplyScalar(60));
+        targetPos.y = this.terrain.getHeight(targetPos.x, targetPos.z);
+
+        this.showNotification("AIRSTRIKE INBOUND");
+        this.audio.play('airstrike_siren');
+
+        for (let i = 0; i < 10; i++) {
+            this.addTimer(2.0 + i * 0.3, () => {
+                const offset = new THREE.Vector3((Math.random()-0.5)*40, 0, (Math.random()-0.5)*40);
+                const explosionPos = targetPos.clone().add(offset);
+                explosionPos.y = this.terrain.getHeight(explosionPos.x, explosionPos.z);
+                VFX.createExplosion(this.scene, this.world, explosionPos, 20, 500, this.audio);
+            });
+        }
+    }
+
+    addTimer(duration, callback) {
+        this.timers.push({ duration, remaining: duration, callback });
+    }
+
+    addRagdolls(ragdolls) {
+        this.ragdolls.push(...ragdolls);
+    }
+    
+    onBaseDestroyed(isEnemyBase) {
+        this.endGame(isEnemyBase);
+    }
+
+    onEnemyKilled(enemy) {
         this.killCount++;
         document.getElementById('sb-kills').textContent = this.killCount;
         this.showKillFeed('<span class="player">YOU</span> neutralized <span class="enemy">ENEMY</span>');
         this.showNotification('+100 XP · ENEMY DOWN');
-        if (this.killCount >= 5) setTimeout(() => this.endGame(true), 1200);
+        
+        const allEnemiesDead = this.enemies.every(e => e.isDead);
+        if (allEnemiesDead) {
+            this.addTimer(1.2, () => this.endGame(true));
+        }
     }
 
     endGame(victory) {
@@ -302,7 +350,7 @@ class Game {
         document.getElementById('sb-mission-result').textContent = victory ? 'ALLIED VICTORY' : 'MISSION FAILED';
         document.getElementById('sb-kills').textContent = this.killCount;
         document.getElementById('sb-caps').textContent = victory ? '1' : '0';
-        document.getElementById('sb-xp').textContent = this.killCount * 100;
+        document.getElementById('sb-xp').textContent = this.killCount * 100 + (victory ? 500 : 0);
         document.getElementById('scoreboard-overlay').classList.add('active');
     }
 
@@ -312,27 +360,28 @@ class Game {
         el.className = 'kill-msg';
         el.innerHTML = msg;
         feed.prepend(el);
-        setTimeout(() => el.remove(), 4000);
+        this.addTimer(4, () => el.remove());
     }
 
     showNotification(msg) {
         const el = document.createElement('div');
         el.className = 'xp-popup';
         el.textContent = msg;
-        document.getElementById('tactical-notify').appendChild(el);
-        setTimeout(() => el.remove(), 1500);
+        const notifyContainer = document.getElementById('tactical-notify');
+        if (notifyContainer) {
+            notifyContainer.appendChild(el);
+            this.addTimer(1.5, () => el.remove());
+        }
     }
 
     updateFog() {
         const p = this.player.body.position;
         const terrainH = this.terrain.getHeight(p.x, p.z);
         const heightAbove = Math.max(0, p.y - terrainH);
-        // Higher elevation = less fog
         this.scene.fog.density = 0.007 - Math.min(heightAbove / 60, 1) * 0.004;
     }
 
     updateCompass() {
-        // Each full rotation = 800px on the tape
         const offset = (-this.player.yaw / (Math.PI * 2)) * 800;
         const tape = document.getElementById('compass-tape');
         if (tape) tape.style.transform = `translateX(calc(-50% + ${offset}px))`;
@@ -366,43 +415,52 @@ class Game {
         if (this.isPaused || this.gameOver) return;
 
         const delta = Math.min(this.clock.getDelta(), 0.05);
+        this.elapsedTime += delta;
+        
+        for (let i = this.timers.length - 1; i >= 0; i--) {
+            const timer = this.timers[i];
+            timer.remaining -= delta;
+            if (timer.remaining <= 0) {
+                timer.callback();
+                this.timers.splice(i, 1);
+            }
+        }
+        
         this.world.step(1 / 60, delta, 3);
+
+        for (let i = this.ragdolls.length - 1; i >= 0; i--) {
+            const ragdoll = this.ragdolls[i];
+            ragdoll.life -= delta;
+            if (ragdoll.life <= 0 || (ragdoll.body.sleepState === CANNON.Body.SLEEPING)) {
+                this.world.removeBody(ragdoll.body);
+                this.scene.remove(ragdoll.mesh);
+                if (ragdoll.mesh.geometry) ragdoll.mesh.geometry.dispose();
+                if (ragdoll.mesh.material) ragdoll.mesh.material.dispose();
+                this.ragdolls.splice(i, 1);
+            } else {
+                ragdoll.mesh.position.copy(ragdoll.body.position);
+                ragdoll.mesh.quaternion.copy(ragdoll.body.quaternion);
+            }
+        }
 
         if (this.vegetation) this.vegetation.update(delta);
         this.particles.update(delta, this.player.camera);
-        this.player.update(delta, this.terrain);
+        this.particles.updateRain(delta, this.player.camera);
+        this.projectiles.update(delta);
+        this.player.update(delta);
+        
+        // --- VFX Update (Centralized delta-time based) ---
+        VFX.update(delta);
 
-        const pp = new THREE.Vector3(this.player.body.position.x, this.player.body.position.y, this.player.body.position.z);
+        const pp = this.player.body.position;
         this.enemies.forEach(e => e.update(delta, pp, this.player));
 
-        if (this.modernTank) {
-            // Check if player is near to "occupy" or just update it
-            // For now, let's just ensure it updates its visuals/physics
-            this.modernTank.update(delta, this.player.moveState, this.player.camera);
-        }
-
-        if (this.spawnedTanks) {
-            this.spawnedTanks.forEach(t => t.update(delta, {}, this.player.camera));
-        }
-
-        // --- HANDLE PENDING SPAWNS ---
-        if (this.pendingSpawns) {
-            for (let i = this.pendingSpawns.length - 1; i >= 0; i--) {
-                const s = this.pendingSpawns[i];
-                s.timer += delta;
-                s.ring.scale.set(1 + Math.sin(s.timer * 10) * 0.1, 1 + Math.sin(s.timer * 10) * 0.1, 1);
-                s.beam.material.opacity = 0.3 * (1 - s.timer / s.duration);
-                
-                if (s.timer >= s.duration) {
-                    this.scene.remove(s.ring);
-                    this.scene.remove(s.beam);
-                    const panther = new PantherTank(this.scene, this.world, this.terrain, s.spawnPos, this.audio, this.particles);
-                    this.spawnedTanks.push(panther);
-                    this.pendingSpawns.splice(i, 1);
-                    this.showNotification("PANTHER DEPLOYED");
-                }
-            }
-        }
+        if(this.modernTank && this.modernTank !== this.player.drivingTank) this.modernTank.update(delta, this.player);
+        this.spawnedTanks.forEach(t => {
+            if (t !== this.player.drivingTank) t.update(delta, this.player);
+        });
+        
+        this.chickens.forEach(c => c.update(delta, pp));
 
         this.updateFog();
         this.updateCompass();

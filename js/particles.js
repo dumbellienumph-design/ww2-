@@ -9,6 +9,57 @@ export class ParticleSystem {
         this.shellCasings = [];
         this.lights = [];
         this.fireTexture = this.createFireTexture();
+        this.rainParticles = null;
+        this.rainVelocity = new THREE.Vector3(-1, -25, -1);
+    }
+
+    initRain() {
+        const count = 3000;
+        const geo = new THREE.BufferGeometry();
+        const pos = new Float32Array(count * 3);
+        for(let i=0; i<count*3; i++) pos[i] = (Math.random() - 0.5) * 100;
+        geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        const mat = new THREE.PointsMaterial({ color: 0x666677, size: 0.15, transparent: true, opacity: 0.4 });
+        this.rainParticles = new THREE.Points(geo, mat);
+        this.scene.add(this.rainParticles);
+    }
+
+    updateRain(delta, camera) {
+        if (!this.rainParticles) return;
+        this.rainParticles.position.copy(camera.position);
+        const pos = this.rainParticles.geometry.attributes.position.array;
+        for(let i=0; i<pos.length; i+=3) {
+            pos[i] += this.rainVelocity.x * delta;
+            pos[i+1] += this.rainVelocity.y * delta;
+            pos[i+2] += this.rainVelocity.z * delta;
+            if (pos[i+1] < -50) pos[i+1] = 50;
+            if (pos[i] < -50) pos[i] = 50;
+            if (pos[i] > 50) pos[i] = -50;
+            if (pos[i+2] < -50) pos[i+2] = 50;
+            if (pos[i+2] > 50) pos[i+2] = -50;
+        }
+        this.rainParticles.geometry.attributes.position.needsUpdate = true;
+    }
+
+    createFire(pos, size = 1, life = 1) {
+        const count = 5;
+        const geo = new THREE.BoxGeometry(size, size, size);
+        let finished = 0;
+        for(let i=0; i<count; i++) {
+            const mat = new THREE.MeshBasicMaterial({ color: 0xff4400, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending });
+            const p = new THREE.Mesh(geo, mat);
+            p.position.copy(pos).add(new THREE.Vector3((Math.random()-0.5)*size, (Math.random()-0.5)*size, (Math.random()-0.5)*size));
+            const velocity = new THREE.Vector3((Math.random()-0.5)*2, 2 + Math.random()*3, (Math.random()-0.5)*2);
+            
+            const pObj = { mesh: p, velocity: velocity, life: life + Math.random(), maxLife: life + Math.random() };
+            pObj.onExpired = () => {
+                finished++;
+                if (finished === count) geo.dispose();
+            };
+            
+            this.particles.push(pObj);
+            this.scene.add(p);
+        }
     }
 
     createFireTexture() {
@@ -59,25 +110,19 @@ export class ParticleSystem {
         for (let i = 0; i < 4; i++) {
             const sj = createFireSprite(s * 0.6, 0.4, 0xffcc88);
             sj.scale.set(s * 0.2, s * 1.2, 1.0);
-            // Angled outward
             const angle = (i * Math.PI) / 2;
             sj.position.set(Math.cos(angle) * 0.1, Math.sin(angle) * 0.1, -0.1);
             sj.rotation.z = angle;
             sideJets.push(sj);
         }
 
-        // 3. NEW: SECONDARY IGNITION SEED
         const seed = createFireSprite(s * 0.3, 0.8);
-        seed.position.z = -s * 0.8; // Projects ahead of the main bloom
+        seed.position.z = -s * 0.8; 
 
-        // SHELL CASING EJECTION
         if (!isTank) this.ejectShell(position, direction);
 
-        // --- REFINED WHITE SMOKE ---
-        // Minimal quantity, pure white, fast fade
         this.createExhaustSmoke(position, direction.clone().multiplyScalar(isTank ? 4 : 1), false);
         
-        // VELOCITY SPARKS
         const sparkCount = isTank ? 40 : 6;
         for(let i=0; i<sparkCount; i++) {
             const spark = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.01, 0.6), new THREE.MeshBasicMaterial({ color: 0xffdd44, transparent: true, blending: THREE.AdditiveBlending }));
@@ -91,26 +136,21 @@ export class ParticleSystem {
             spark.lookAt(position.clone().add(sparkDir));
         }
 
-        // --- FAST ANIMATION ---
         let life = 1.0;
         const speed = isTank ? 0.06 : 0.35; 
         const anim = () => {
             life -= speed;
-            const expansion = 1 + (1 - life) * 1.5;
-            
-            core.scale.setScalar(s * 0.4 * life);
-            bloom.scale.setScalar(s * 1.2 * expansion);
-            mainJet.scale.set(s * 0.8 * expansion, s * 2.2 * expansion, 1.0);
-            seed.scale.setScalar(s * 0.3 * (1 + (1-life)*2));
-            seed.position.z -= 0.1; // Forward travel
-            
-            sideJets.forEach(sj => { sj.scale.y *= 1.1; sj.material.opacity = life * 0.4; });
-            
-            bloom.material.opacity = life * 0.7;
-            mainJet.material.opacity = life * 0.5;
-            seed.material.opacity = life * 0.8;
-            
             if (life > 0) {
+                const expansion = 1 + (1 - life) * 1.5;
+                core.scale.setScalar(s * 0.4 * life);
+                bloom.scale.setScalar(s * 1.2 * expansion);
+                mainJet.scale.set(s * 0.8 * expansion, s * 2.2 * expansion, 1.0);
+                seed.scale.setScalar(s * 0.3 * (1 + (1-life)*2));
+                seed.position.z -= 0.1;
+                sideJets.forEach(sj => { sj.scale.y *= 1.1; sj.material.opacity = life * 0.4; });
+                bloom.material.opacity = life * 0.7;
+                mainJet.material.opacity = life * 0.5;
+                seed.material.opacity = life * 0.8;
                 requestAnimationFrame(anim);
             } else {
                 this.scene.remove(group);
@@ -119,6 +159,15 @@ export class ParticleSystem {
             }
         };
         anim();
+    }
+
+    spawnParticle(pos, velocity, color, life = 1.0) {
+        const geo = new THREE.BoxGeometry(0.2, 0.2, 0.2);
+        const mat = new THREE.MeshBasicMaterial({ color: color, transparent: true });
+        const p = new THREE.Mesh(geo, mat);
+        p.position.copy(pos);
+        this.scene.add(p);
+        this.particles.push({ mesh: p, velocity: velocity, life: life, maxLife: life });
     }
 
     ejectShell(pos, dir) {
@@ -130,7 +179,6 @@ export class ParticleSystem {
         this.scene.add(mesh);
 
         const right = new THREE.Vector3(1, 0, 0).applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, -1), dir));
-        // Small ejection puff
         this.createExhaustSmoke(pos.clone().add(right.clone().multiplyScalar(0.1)), right.multiplyScalar(0.2), false);
 
         const velocity = right.multiplyScalar(4 + Math.random() * 3);
@@ -154,8 +202,8 @@ export class ParticleSystem {
     }
 
     createExhaustSmoke(position, velocity, isBlack = false) {
-        const smokeGeo = new THREE.SphereGeometry(0.1, 6, 6); // Smaller
-        const smokeMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.15 }); // Pure white, low opacity
+        const smokeGeo = new THREE.SphereGeometry(0.1, 6, 6);
+        const smokeMat = new THREE.MeshBasicMaterial({ color: isBlack ? 0x222222 : 0xffffff, transparent: true, opacity: 0.15 });
         const smoke = new THREE.Mesh(smokeGeo, smokeMat);
         smoke.layers.set(1);
         smoke.position.copy(position);
@@ -163,24 +211,70 @@ export class ParticleSystem {
         this.particles.push({ 
             mesh: smoke, 
             velocity: velocity.clone().add(new THREE.Vector3((Math.random()-0.5)*0.5, 0.5, (Math.random()-0.5)*0.5)), 
-            life: 0.3, // Ultra short life
+            life: 0.3,
             maxLife: 0.3, 
             startSize: 0.1 
         });
     }
 
+    destroy() {
+        if (this.fireTexture) this.fireTexture.dispose();
+        
+        const cleanup = (list) => {
+            list.forEach(p => {
+                this.scene.remove(p.mesh);
+                if (p.mesh.geometry) p.mesh.geometry.dispose();
+                if (p.mesh.material) {
+                    if (Array.isArray(p.mesh.material)) p.mesh.material.forEach(m => m.dispose());
+                    else p.mesh.material.dispose();
+                }
+                if (p.body && p.body.world) p.body.world.removeBody(p.body);
+            });
+        };
+
+        cleanup(this.particles);
+        cleanup(this.shellCasings);
+        cleanup(this.physicalDebris);
+        
+        if (this.rainParticles) {
+            this.scene.remove(this.rainParticles);
+            this.rainParticles.geometry.dispose();
+            this.rainParticles.material.dispose();
+        }
+        
+        this.particles = [];
+        this.shellCasings = [];
+        this.physicalDebris = [];
+    }
+
     update(delta, camera) {
         for (let i = this.particles.length - 1; i >= 0; i--) {
             const p = this.particles[i]; p.life -= delta;
-            if (p.life <= 0) { this.scene.remove(p.mesh); this.particles.splice(i, 1); continue; }
+            if (p.life <= 0) { 
+                this.scene.remove(p.mesh); 
+                if (p.mesh.geometry) p.mesh.geometry.dispose();
+                if (p.mesh.material) p.mesh.material.dispose();
+                if (p.onExpired) p.onExpired();
+                this.particles.splice(i, 1); 
+                continue; 
+            }
             p.mesh.position.add(p.velocity.clone().multiplyScalar(delta));
             const progress = p.life / p.maxLife;
-            if (!p.isSpark) { p.mesh.scale.setScalar(1 + (1 - progress) * 4); p.mesh.material.opacity = progress * 0.15; }
-            else { p.mesh.material.opacity = progress; }
+            if (!p.isSpark) { 
+                p.mesh.scale.setScalar(1 + (1 - progress) * 4); 
+                if (p.mesh.material.opacity !== undefined) p.mesh.material.opacity = progress * 0.15; 
+            }
+            else { if (p.mesh.material.opacity !== undefined) p.mesh.material.opacity = progress; }
         }
         for (let i = this.shellCasings.length - 1; i >= 0; i--) {
             const s = this.shellCasings[i]; s.life -= delta;
-            if (s.life <= 0) { this.scene.remove(s.mesh); this.shellCasings.splice(i, 1); continue; }
+            if (s.life <= 0) { 
+                this.scene.remove(s.mesh); 
+                s.mesh.geometry.dispose();
+                s.mesh.material.dispose();
+                this.shellCasings.splice(i, 1); 
+                continue; 
+            }
             s.velocity.y -= 25 * delta;
             s.mesh.position.add(s.velocity.clone().multiplyScalar(delta));
             s.mesh.rotation.x += s.rotation.x * delta; s.mesh.rotation.y += s.rotation.y * delta; s.mesh.rotation.z += s.rotation.z * delta;
@@ -188,7 +282,14 @@ export class ParticleSystem {
         }
         for (let i = this.physicalDebris.length - 1; i >= 0; i--) {
             const d = this.physicalDebris[i]; d.life -= delta;
-            if (d.life <= 0) { this.scene.remove(d.mesh); if (d.body.world) d.body.world.removeBody(d.body); this.physicalDebris.splice(i, 1); continue; }
+            if (d.life <= 0) { 
+                this.scene.remove(d.mesh); 
+                d.mesh.geometry.dispose();
+                d.mesh.material.dispose();
+                if (d.body.world) d.body.world.removeBody(d.body); 
+                this.physicalDebris.splice(i, 1); 
+                continue; 
+            }
             d.mesh.position.copy(d.body.position); d.mesh.quaternion.copy(d.body.quaternion);
         }
     }

@@ -57,6 +57,7 @@ export class Vegetation {
                 // Add physics body for the trunk
                 const shape = new CANNON.Box(new CANNON.Vec3(0.5 * scale, 4 * scale, 0.5 * scale));
                 const body = new CANNON.Body({ mass: 0, shape: shape });
+                body.isTree = true;
                 body.position.set(x, y + 4 * scale, z);
                 this.world.addBody(body);
 
@@ -151,6 +152,22 @@ export class Vegetation {
         
         this.scene.add(instancedMesh);
         this.grass = instancedMesh;
+    }
+
+    destroy() {
+        if (this.grass) {
+            this.scene.remove(this.grass);
+            this.grass.geometry.dispose();
+            this.grass.material.dispose();
+        }
+        this.scene.traverse(child => {
+            if (child instanceof THREE.InstancedMesh) {
+                this.scene.remove(child);
+                child.geometry.dispose();
+                child.material.dispose();
+            }
+        });
+        this.world.bodies.filter(b => b.isTree).forEach(b => this.world.removeBody(b));
     }
 
     update(delta) {
