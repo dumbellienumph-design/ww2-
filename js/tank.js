@@ -3,9 +3,10 @@ import * as CANNON from 'cannon-es';
 import { VFX } from './vfx.js';
 
 export class Tank {
-    constructor(scene, world, position, audio, particles) {
+    constructor(scene, world, terrain, position, audio, particles) {
         this.scene = scene;
         this.world = world;
+        this.terrain = terrain;
         this.audio = audio;
         this.particles = particles;
         
@@ -14,8 +15,12 @@ export class Tank {
 
         this.initPhysics(position);
         this.initVisuals();
-        this.initMinimapIcon();
         
+        this.group.layers.enable(1);
+        this.group.traverse(child => {
+            child.layers.enable(1);
+        });
+
         this.isOccupied = false;
         this.isSniperMode = false;
         this.currentTurretYaw = 0;
@@ -46,15 +51,6 @@ export class Tank {
             this.isDestroyed = true;
             VFX.createExplosion(this.scene, this.world, this.group.position, 15, 100, this.audio);
         }
-    }
-
-    initMinimapIcon() {
-        const iconGeo = new THREE.BoxGeometry(6, 1, 6);
-        const iconMat = new THREE.MeshBasicMaterial({ color: 0x0000ff });
-        this.minimapIcon = new THREE.Mesh(iconGeo, iconMat);
-        this.minimapIcon.position.set(0, 100, 0);
-        this.minimapIcon.layers.set(1);
-        this.group.add(this.minimapIcon);
     }
 
     initAimingReticle() {
@@ -202,24 +198,14 @@ export class Tank {
         this.body.angularVelocity.x *= 0.1;
         this.body.angularVelocity.z *= 0.1;
 
-        // --- TERRAIN NORMAL ALIGNMENT ---
-        if (window.game && window.game.terrain) {
-            const rayOrigin = new CANNON.Vec3(this.body.position.x, this.body.position.y + 5, this.body.position.z);
-            const rayTarget = new CANNON.Vec3(this.body.position.x, this.body.position.y - 5, this.body.position.z);
-            // Since we don't have a raycast easily here, we can approximate the normal
-            const epsilon = 0.5;
-            const hL = window.game.terrain.getHeight(this.body.position.x - epsilon, this.body.position.z);
-            const hR = window.game.terrain.getHeight(this.body.position.x + epsilon, this.body.position.z);
-            const hF = window.game.terrain.getHeight(this.body.position.x, this.body.position.z - epsilon);
-            const hB = window.game.terrain.getHeight(this.body.position.x, this.body.position.z + epsilon);
-            
-            const normal = new THREE.Vector3(hL - hR, 2 * epsilon, hF - hB).normalize();
-            const targetQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
-            
-            // Blend the terrain normal with the current heading (Y-rotation)
-            const headingQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, this.body.quaternion.y, 0, 'YXZ'));
-            // This is a bit complex to do perfectly with Cannon-es quats, so we'll just let physics handle most of it
-            // but we can apply a small torque to help it align.
+        // --- TERRAIN SNAPPING ---
+        if (this.terrain) {
+            const groundY = this.terrain.getHeight(this.body.position.x, this.body.position.z);
+            const halfHeight = 0.5; // Adjusted to account for shape offset
+            if (this.body.position.y < groundY + halfHeight) {
+                this.body.position.y = groundY + halfHeight;
+                this.body.velocity.y = Math.max(0, this.body.velocity.y);
+            }
         }
 
         const camEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
@@ -279,10 +265,48 @@ export class Tank {
         });
         this.world.addBody(shellBody);
         shellBody.mesh = shellMesh;
+        const cleanup = () => {
+            if (!shellBody.world) return;
+            this.world.removeBody(shellBody);
+            this.scene.remove(shellMesh);
+            shellMesh.geometry.dispose();
+            shellMesh.material.dispose();
+        };
+
         shellBody.addEventListener('collide', (e) => {
             VFX.createExplosion(this.scene, this.world, shellBody.position.clone(), 15, 250, this.audio);
-            setTimeout(() => { if (shellBody.world) { this.world.removeBody(shellBody); this.scene.remove(shellMesh); } }, 20);
+            setTimeout(cleanup, 20);
         });
-        setTimeout(() => { if(shellBody.world) { this.world.removeBody(shellBody); this.scene.remove(shellMesh); } }, 5000);
+        setTimeout(cleanup, 5000);
+    }
+
+    destroy() {
+        if (this.isDestroyed) return;
+        this.isDestroyed = true;
+
+        if (this.body) {
+            this.world.removeBody(this.body);
+            this.body = null;
+        }
+
+        if (this.group) {
+            this.scene.remove(this.group);
+            this.group.traverse(child => {
+                if (child.isMesh) {
+                    child.geometry.dispose();
+                    if (child.material.isMaterial) {
+                        child.material.dispose();
+                    } else if (Array.isArray(child.material)) {
+                        child.material.forEach(material => material.dispose());
+                    }
+                }
+            });
+        }
+        
+        if (this.reticle) {
+            this.scene.remove(this.reticle);
+            this.reticle.geometry.dispose();
+            this.reticle.material.dispose();
+        }
     }
 }

@@ -7,6 +7,8 @@ import { Vegetation } from './vegetation.js';
 import { Enemy } from './enemy.js';
 import { Base } from './base.js';
 import { GameAudio } from './audio.js';
+import { ModernTank } from './modern-tank.js';
+import { PantherTank } from './panther-tank.js';
 
 class Game {
     constructor() {
@@ -19,14 +21,16 @@ class Game {
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
         this.scene = new THREE.Scene();
-        this.fogColor = new THREE.Color(0x5a5e5b);
+        this.fogColor = new THREE.Color(0x1a2e1a); // Dark Green Fog
         this.scene.background = this.fogColor.clone();
-        this.scene.fog = new THREE.FogExp2(this.fogColor.clone(), 0.004);
+        this.scene.fog = new THREE.FogExp2(this.fogColor.clone(), 0.005);
 
         this.world = new CANNON.World();
         this.world.gravity.set(0, -25, 0);
 
         this.enemies = [];
+        this.spawnedTanks = [];
+        this.bases = [];
         this.killCount = 0;
         this.isPaused = false;
         this.gameOver = false;
@@ -39,9 +43,44 @@ class Game {
         this.initMinimap();
         this.initCompass();
 
-        window.addEventListener('resize', () => this.onWindowResize());
         this.clock = new THREE.Clock();
+        this.onWindowResize = this.onWindowResize.bind(this);
+        window.addEventListener('resize', this.onWindowResize);
         this.createStartOverlay();
+    }
+
+    destroy() {
+        this.gameOver = true;
+        this.isPaused = true;
+        
+        if (this.player) this.player.destroy();
+        this.enemies.forEach(e => e.destroy());
+        this.spawnedTanks.forEach(t => t.destroy());
+        this.bases.forEach(b => b.destroy());
+        if (this.modernTank) this.modernTank.destroy();
+        if (this.vegetation) this.vegetation.destroy?.();
+        if (this.terrain) this.terrain.destroy?.();
+
+        window.removeEventListener('resize', this.onWindowResize);
+        
+        if (this.renderer) {
+            this.renderer.dispose();
+            this.renderer.forceContextLoss();
+        }
+        if (this.minimapRenderer) this.minimapRenderer.dispose();
+        
+        this.scene.traverse(child => {
+            if (child.isMesh) {
+                child.geometry.dispose();
+                if (child.material.isMaterial) child.material.dispose();
+                else if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
+            }
+        });
+
+        const overlay = document.getElementById('start-overlay');
+        if (overlay) overlay.remove();
+        
+        window.game = null;
     }
 
     initWorld() {
@@ -50,22 +89,41 @@ class Game {
         this.vegetation = new Vegetation(this.scene, this.world, this.terrain);
         this.particles = new ParticleSystem(this.scene);
 
-        this.player = new Player(this.scene, this.world, this.renderer.domElement, this.audio, this.particles);
+        this.player = new Player(this.scene, this.world, this.renderer.domElement, this.audio, this.particles, this.terrain);
 
         // Allied base (south/spawn side) and enemy base (north/objective)
-        new Base(this.scene, this.world, new THREE.Vector3(0, 0, 100), null, this.particles, this.terrain, false);
-        new Base(this.scene, this.world, new THREE.Vector3(0, 0, -350), null, this.particles, this.terrain, true);
+        this.bases.push(new Base(this.scene, this.world, new THREE.Vector3(0, 0, 100), null, this.particles, this.terrain, false));
+        this.bases.push(new Base(this.scene, this.world, new THREE.Vector3(0, 0, -350), null, this.particles, this.terrain, true));
 
-        // Spawn 5 enemies near enemy base
-        const spawnPts = [[-40, -270], [40, -290], [-90, -330], [90, -310], [0, -380]];
+        // Spawn 5 enemies close enough for the player to encounter
+        const spawnPts = [[-20, -40], [20, -50], [-40, -60], [40, -55], [0, -70]];
         spawnPts.forEach(([x, z]) => {
-            const y = this.terrain.getHeight(x, z) + 1;
-            const e = new Enemy(this.scene, this.world, new THREE.Vector3(x, y, z));
-            e.terrain = this.terrain;
+            const y = this.terrain.getHeight(x, z) + 0.9;
+            const e = new Enemy(this.scene, this.world, this.terrain, new THREE.Vector3(x, y, z));
             this.enemies.push(e);
         });
+        console.log('Spawned', this.enemies.length, 'enemies');
 
         this.player.body.position.set(0, this.terrain.getHeight(0, 0) + 2, 0);
+
+        // --- MODERN TANK INTEGRATION ---
+        // Placing on a high pedestal to ensure visibility (Mandatory Feature)
+        const mtPos = new THREE.Vector3(20, this.terrain.getHeight(20, 20) + 0, 20);
+        
+        // Create pedestal
+        const pedGeo = new THREE.BoxGeometry(10, 5, 15);
+        const pedMat = new THREE.MeshStandardMaterial({ color: 0x444444 });
+        const pedestal = new THREE.Mesh(pedGeo, pedMat);
+        pedestal.position.set(mtPos.x, mtPos.y + 2.5, mtPos.z);
+        pedestal.castShadow = true;
+        pedestal.receiveShadow = true;
+        this.scene.add(pedestal);
+
+        const pedBody = new CANNON.Body({ mass: 0, shape: new CANNON.Box(new CANNON.Vec3(5, 2.5, 7.5)) });
+        pedBody.position.set(mtPos.x, mtPos.y + 2.5, mtPos.z);
+        this.world.addBody(pedBody);
+
+        this.modernTank = new ModernTank(this.scene, this.world, this.terrain, new THREE.Vector3(mtPos.x, mtPos.y + 5, mtPos.z), this.audio, this.particles);
     }
 
     initLights() {
@@ -113,6 +171,7 @@ class Game {
     }
 
     initUI() {
+        console.log('initUI running');
         document.addEventListener('keydown', (e) => {
             if (e.code === 'Escape' && !this.gameOver) this.togglePause();
             if (e.code === 'KeyV' && !e.repeat) {
@@ -124,6 +183,10 @@ class Game {
             if (e.code === 'Digit1') this.setSquadOrder('ADVANCE');
             if (e.code === 'Digit2') this.setSquadOrder('HOLD');
             if (e.code === 'Digit3') this.setSquadOrder('REGROUP');
+            if (e.code === 'KeyJ') {
+                console.log('J key pressed');
+                this.spawnPanther();
+            }
         });
 
         const btnResume = document.getElementById('btn-resume');
@@ -183,6 +246,45 @@ class Game {
         document.getElementById('command-menu').classList.remove('active');
         this.showNotification(`SQUAD: ${order}`);
         if (!this.isPaused && !this.gameOver) this.player.requestPointerLock();
+    }
+
+    spawnPanther() {
+        console.log('spawnPanther called');
+        if (!this.player || this.isPaused || this.gameOver) {
+            console.log('Spawn cancelled:', { player: !!this.player, paused: this.isPaused, over: this.gameOver });
+            return;
+        }
+
+        // Position in front of player
+        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.player.camera.quaternion);
+        const spawnPos = new THREE.Vector3().copy(this.player.body.position).add(forward.multiplyScalar(25)); // Slightly further
+        spawnPos.y = this.terrain.getHeight(spawnPos.x, spawnPos.z);
+        console.log('Spawn position calculated:', spawnPos);
+
+        // --- GIANT SPAWNING ANIMATION ---
+        // Creating a GIANT glowing ring on the ground
+        const ringGeo = new THREE.RingGeometry(12, 14, 64); // Doubled size
+        const ringMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.9, side: THREE.DoubleSide });
+        const ring = new THREE.Mesh(ringGeo, ringMat);
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.set(spawnPos.x, spawnPos.y + 0.2, spawnPos.z);
+        this.scene.add(ring);
+
+        // Giant Light beam
+        const beamGeo = new THREE.CylinderGeometry(12, 12, 100, 32, 1, true);
+        const beamMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.4 });
+        const beam = new THREE.Mesh(beamGeo, beamMat);
+        beam.position.set(spawnPos.x, spawnPos.y + 50, spawnPos.z);
+        this.scene.add(beam);
+
+        // Spawn data for animation
+        const spawnData = {
+            ring, beam, spawnPos, timer: 0, duration: 2.0 // Increased duration
+        };
+
+        if (!this.pendingSpawns) this.pendingSpawns = [];
+        this.pendingSpawns.push(spawnData);
+        this.showNotification("REINFORCEMENTS CALLED");
     }
 
     onEnemyKilled() {
@@ -272,6 +374,35 @@ class Game {
 
         const pp = new THREE.Vector3(this.player.body.position.x, this.player.body.position.y, this.player.body.position.z);
         this.enemies.forEach(e => e.update(delta, pp, this.player));
+
+        if (this.modernTank) {
+            // Check if player is near to "occupy" or just update it
+            // For now, let's just ensure it updates its visuals/physics
+            this.modernTank.update(delta, this.player.moveState, this.player.camera);
+        }
+
+        if (this.spawnedTanks) {
+            this.spawnedTanks.forEach(t => t.update(delta, {}, this.player.camera));
+        }
+
+        // --- HANDLE PENDING SPAWNS ---
+        if (this.pendingSpawns) {
+            for (let i = this.pendingSpawns.length - 1; i >= 0; i--) {
+                const s = this.pendingSpawns[i];
+                s.timer += delta;
+                s.ring.scale.set(1 + Math.sin(s.timer * 10) * 0.1, 1 + Math.sin(s.timer * 10) * 0.1, 1);
+                s.beam.material.opacity = 0.3 * (1 - s.timer / s.duration);
+                
+                if (s.timer >= s.duration) {
+                    this.scene.remove(s.ring);
+                    this.scene.remove(s.beam);
+                    const panther = new PantherTank(this.scene, this.world, this.terrain, s.spawnPos, this.audio, this.particles);
+                    this.spawnedTanks.push(panther);
+                    this.pendingSpawns.splice(i, 1);
+                    this.showNotification("PANTHER DEPLOYED");
+                }
+            }
+        }
 
         this.updateFog();
         this.updateCompass();

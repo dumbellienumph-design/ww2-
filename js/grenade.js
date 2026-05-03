@@ -82,6 +82,20 @@ export class Grenade {
     explode() {
         this.isExploded = true;
         VFX.createExplosion(this.scene, this.world, this.mesh.position, 8, 100, this.audio);
+        
+        this.mesh.traverse(child => {
+            if (child.isMesh) {
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) {
+                    if (Array.isArray(child.material)) {
+                        child.material.forEach(mat => mat.dispose());
+                    } else {
+                        child.material.dispose();
+                    }
+                }
+            }
+        });
+
         this.scene.remove(this.mesh);
         this.world.removeBody(this.body);
     }

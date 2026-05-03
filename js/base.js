@@ -32,6 +32,39 @@ export class Base {
         }
 
         this.createBattlefieldCover();
+
+        this.group.layers.enable(1);
+        this.group.traverse(child => {
+            child.layers.enable(1);
+        });
+
+        this.physicsBodies = [];
+    }
+
+    destroy() {
+        if (this.physicsBodies) {
+            this.physicsBodies.forEach(body => this.world.removeBody(body));
+            this.physicsBodies = [];
+        }
+        if (this.hqBody) {
+            this.world.removeBody(this.hqBody);
+            this.hqBody = null;
+        }
+        if (this.group) {
+            this.scene.remove(this.group);
+            this.group.traverse(child => {
+                if (child.isMesh) {
+                    child.geometry.dispose();
+                    if (child.material.isMaterial) child.material.dispose();
+                    else if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
+                }
+            });
+        }
+    }
+
+    _addPhysicsBody(body) {
+        this.world.addBody(body);
+        this.physicsBodies.push(body);
     }
 
     initMaterials() {
@@ -65,23 +98,32 @@ export class Base {
     }
 
     createProBuilding(x, y, z, w, h, l, mat) {
+        const worldX = this.position.x + x;
+        const worldZ = this.position.z + z;
+        const groundY = this.terrain.getHeight(worldX, worldZ);
+        const localY = groundY - this.position.y;
+
         const bGroup = new THREE.Group();
-        bGroup.position.set(x, y, z);
+        bGroup.position.set(x, localY, z);
         this.group.add(bGroup);
 
-        // Main Shell
+        // Foundation to prevent floating
+        const foundationH = 10; // Extra height to dig into ground
+        const foundation = new THREE.Mesh(new THREE.BoxGeometry(w + 0.2, foundationH, l + 0.2), this.concreteMat);
+        foundation.position.y = -foundationH / 2 + h / 2; // Position it below the main building
+        foundation.receiveShadow = true;
+        bGroup.add(foundation);
+
         const main = new THREE.Mesh(new THREE.BoxGeometry(w, h, l), mat);
         main.position.y = h/2;
         main.castShadow = true; main.receiveShadow = true;
         bGroup.add(main);
 
-        // Roof with Overhang
         const roof = new THREE.Mesh(new THREE.BoxGeometry(w + 1.5, 0.8, l + 1.5), this.trimMat);
         roof.position.y = h + 0.4;
         roof.castShadow = true;
         bGroup.add(roof);
 
-        // Corner Trim (The "Professional" touch)
         const trimW = 0.4;
         const corners = [
             { x: w/2, z: l/2 }, { x: -w/2, z: l/2 },
@@ -93,30 +135,39 @@ export class Base {
             bGroup.add(trim);
         });
 
-        // Windows
         const winCount = 3;
         for(let i=0; i<winCount; i++) {
             const win = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2, 1.5), this.windowMat);
             const winPos = (i - (winCount-1)/2) * (l/winCount * 1.5);
             win.position.set(w/2 + 0.05, h * 0.6, winPos);
             bGroup.add(win);
-            
-            // Window Frame
             const frame = new THREE.Mesh(new THREE.BoxGeometry(0.15, 2.2, 1.7), this.trimMat);
             frame.position.copy(win.position);
             bGroup.add(frame);
         }
 
         const body = new CANNON.Body({ mass: 0, shape: new CANNON.Box(new CANNON.Vec3(w/2, h/2, l/2)) });
-        body.position.set(this.position.x + x, this.position.y + h/2, this.position.z + z);
+        body.position.set(worldX, groundY + h/2, worldZ);
         body.mesh = main;
-        this.world.addBody(body);
+        this._addPhysicsBody(body);
     }
 
     createWatchtower(x, y, z) {
+        const worldX = this.position.x + x;
+        const worldZ = this.position.z + z;
+        const groundY = this.terrain.getHeight(worldX, worldZ);
+        const localY = groundY - this.position.y;
+
         const tw = new THREE.Group();
-        tw.position.set(x, y, z);
+        tw.position.set(x, localY, z);
         this.group.add(tw);
+
+        // Foundation to prevent floating
+        const foundationH = 10; // Extra height to dig into ground
+        const foundation = new THREE.Mesh(new THREE.BoxGeometry(6, foundationH, 6), this.concreteMat);
+        foundation.position.y = -foundationH / 2; // Position it below the legs
+        foundation.receiveShadow = true;
+        tw.add(foundation);
 
         const legs = [
             {x: 2, z: 2}, {x: -2, z: 2}, {x: 2, z: -2}, {x: -2, z: -2}
@@ -132,8 +183,8 @@ export class Base {
         tw.add(platform);
 
         const body = new CANNON.Body({ mass: 0, shape: new CANNON.Box(new CANNON.Vec3(3, 6, 3)) });
-        body.position.set(this.position.x + x, this.position.y + 6, this.position.z + z);
-        this.world.addBody(body);
+        body.position.set(worldX, groundY + 6, worldZ);
+        this._addPhysicsBody(body);
     }
 
     createCommandCenter() {
@@ -162,6 +213,17 @@ export class Base {
             if (body.health <= 0 && !this.isDestroyed) {
                 this.isDestroyed = true;
                 VFX.createExplosion(this.scene, this.world, body.position, 60, 0, null);
+                
+                // Dispose of geometries and materials to prevent memory leaks
+                bGroup.traverse(child => {
+                    if (child.isMesh) {
+                        child.geometry.dispose();
+                        if (child.material.isMaterial) {
+                            child.material.dispose();
+                        }
+                    }
+                });
+                
                 this.group.remove(bGroup);
                 this.world.removeBody(body);
                 if(window.game) window.game.endGame(true);
@@ -182,19 +244,29 @@ export class Base {
     }
 
     createDragonsTooth(x, y, z) {
+        const worldX = this.position.x + x;
+        const worldZ = this.position.z + z;
+        const groundY = this.terrain.getHeight(worldX, worldZ);
+        const localY = groundY - this.position.y;
+
         const mesh = new THREE.Mesh(new THREE.ConeGeometry(1.5, 2.5, 4), this.concreteMat);
-        mesh.position.set(x, 1.25, z);
+        mesh.position.set(x, localY + 1.25, z);
         mesh.rotation.y = Math.PI / 4;
         mesh.castShadow = true; mesh.receiveShadow = true;
         this.group.add(mesh);
         const body = new CANNON.Body({ mass: 0, shape: new CANNON.Box(new CANNON.Vec3(0.8, 1.25, 0.8)) });
-        body.position.set(this.position.x + x, this.position.y + 1.25, this.position.z + z);
-        this.world.addBody(body);
+        body.position.set(worldX, groundY + 1.25, worldZ);
+        this._addPhysicsBody(body);
     }
 
     createSandbagWall(x, y, z, rot) {
+        const worldX = this.position.x + x;
+        const worldZ = this.position.z + z;
+        const groundY = this.terrain.getHeight(worldX, worldZ);
+        const localY = groundY - this.position.y;
+
         const wall = new THREE.Group();
-        wall.position.set(x, 0.4, z);
+        wall.position.set(x, localY + 0.4, z);
         wall.rotation.y = rot;
         for(let i=0; i<3; i++) {
             for(let j=0; j<2; j++) {
@@ -207,9 +279,9 @@ export class Base {
         }
         this.group.add(wall);
         const body = new CANNON.Body({ mass: 0, shape: new CANNON.Box(new CANNON.Vec3(1.2, 0.6, 0.4)) });
-        body.position.set(this.position.x + x, this.position.y + 0.6, this.position.z + z);
+        body.position.set(worldX, groundY + 0.6, worldZ);
         body.quaternion.setFromEuler(0, rot, 0);
-        this.world.addBody(body);
+        this._addPhysicsBody(body);
     }
 
     createFortifications() {
@@ -225,7 +297,7 @@ export class Base {
         this.group.add(mesh);
         const body = new CANNON.Body({ mass: 0, shape: new CANNON.Box(new CANNON.Vec3(1, 3, 9)) });
         body.position.set(this.position.x + x, this.position.y + 3, this.position.z + z);
-        this.world.addBody(body);
+        this._addPhysicsBody(body);
     }
 
     createSpawnPad() {

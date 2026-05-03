@@ -3,28 +3,30 @@ import * as CANNON from 'cannon-es';
 import { VFX } from './vfx.js';
 
 export class Player {
-    constructor(scene, world, domElement, audio, particles) {
+    constructor(scene, world, domElement, audio, particles, terrain) {
         this.scene = scene;
         this.world = world;
         this.domElement = domElement;
         this.audio = audio;
         this.particles = particles;
+        this.terrain = terrain;
 
         this.baseFOV = 75;
         this.camera = new THREE.PerspectiveCamera(this.baseFOV, window.innerWidth / window.innerHeight, 0.1, 5000);
         this.camera.rotation.order = 'YXZ';
         this.camera.layers.enable(1);
 
-        this.walkSpeed = 20;
+        this.walkSpeed = 24;
+        this.sprintSpeed = 40;
         this.health = 100;
         this.maxHealth = 100;
         this.bandages = 3;
         this.isDead = false;
         this.isSprinting = false;
+        this.isReloading = false;
         this.lastDamageTime = -99999;
         this.footstepTimer = 0;
         this.canJump = false;
-        this.terrain = null;
 
         this.moveState = {
             forward: false, backward: false, left: false, right: false,
@@ -60,7 +62,7 @@ export class Player {
             position: new CANNON.Vec3(0, 100, 0),
             material: material
         });
-        this.body.addEventListener('collide', (e) => { if (e.contact.ni.y > 0.4) this.canJump = true; });
+        this.body.addEventListener('collide', (e) => { if (e.contact.ni.y > 0.1) this.canJump = true; });
         this.world.addBody(this.body);
         const groundMat = new CANNON.Material("groundMaterial");
         this.world.bodies.forEach(b => { if (b.mass === 0) b.material = groundMat; });
@@ -72,23 +74,51 @@ export class Player {
     }
 
     initControls() {
-        document.addEventListener('mousemove', (e) => {
-            if (document.pointerLockElement === this.domElement) {
-                const s = 0.002;
-                this.yaw -= e.movementX * s;
-                this.pitch -= e.movementY * s;
-                this.pitch = Math.max(-Math.PI / 2.1, Math.min(Math.PI / 2.1, this.pitch));
-            }
-        });
-        document.addEventListener('keydown', (e) => this.onKey(e.code, true));
-        document.addEventListener('keyup', (e) => this.onKey(e.code, false));
-        document.addEventListener('mousedown', (e) => {
-            if (document.pointerLockElement === this.domElement && e.button === 0) this.moveState.shoot = true;
-        });
-        document.addEventListener('mouseup', (e) => {
-            if (document.pointerLockElement === this.domElement && e.button === 0) this.moveState.shoot = false;
-        });
+        this.handleMouseMove = this.handleMouseMove.bind(this);
+        this.handleKeyDown = this.handleKeyDown.bind(this);
+        this.handleKeyUp = this.handleKeyUp.bind(this);
+        this.handleMouseDown = this.handleMouseDown.bind(this);
+        this.handleMouseUp = this.handleMouseUp.bind(this);
+
+        document.addEventListener('mousemove', this.handleMouseMove);
+        document.addEventListener('keydown', this.handleKeyDown);
+        document.addEventListener('keyup', this.handleKeyUp);
+        document.addEventListener('mousedown', this.handleMouseDown);
+        document.addEventListener('mouseup', this.handleMouseUp);
     }
+
+    destroy() {
+        document.removeEventListener('mousemove', this.handleMouseMove);
+        document.removeEventListener('keydown', this.handleKeyDown);
+        document.removeEventListener('keyup', this.handleKeyUp);
+        document.removeEventListener('mousedown', this.handleMouseDown);
+        document.removeEventListener('mouseup', this.handleMouseUp);
+
+        if (this._reloadTimer) clearTimeout(this._reloadTimer);
+        if (this._lockTimer) clearTimeout(this._lockTimer);
+
+        this.scene.remove(this.camera);
+        this.world.removeBody(this.body);
+    }
+
+    handleMouseMove(e) {
+        if (document.pointerLockElement === this.domElement) {
+            const s = 0.002;
+            this.yaw -= e.movementX * s;
+            this.pitch -= e.movementY * s;
+            this.pitch = Math.max(-Math.PI / 2.1, Math.min(Math.PI / 2.1, this.pitch));
+        }
+    }
+
+    handleKeyDown(e) { this.onKey(e.code, true); }
+    handleKeyUp(e) { this.onKey(e.code, false); }
+    handleMouseDown(e) {
+        if (document.pointerLockElement === this.domElement && e.button === 0) this.moveState.shoot = true;
+    }
+    handleMouseUp(e) {
+        if (document.pointerLockElement === this.domElement && e.button === 0) this.moveState.shoot = false;
+    }
+
 
     onKey(code, isPressed) {
         switch (code) {
@@ -99,6 +129,7 @@ export class Player {
             case 'Space': this.moveState.jump = isPressed; break;
             case 'ShiftLeft': case 'ShiftRight': this.isSprinting = isPressed; break;
             case 'KeyF': if (isPressed) this.useBandage(); break;
+            case 'KeyR': if (isPressed) this.reload(); break;
         }
     }
 
@@ -174,7 +205,24 @@ export class Player {
     updateAmmoUI() {
         const w = this.weapons[this.currentWeaponIndex];
         const el = document.getElementById('ammo');
-        if (el) el.textContent = `AMMO: ${w.ammo}/${w.reserve}`;
+        if (!el) return;
+        el.textContent = this.isReloading ? 'RELOADING...' : `AMMO: ${w.ammo}/${w.reserve}`;
+    }
+
+    reload() {
+        const w = this.weapons[this.currentWeaponIndex];
+        if (this.isReloading || w.ammo >= w.capacity || w.reserve <= 0) return;
+        this.isReloading = true;
+        this.updateAmmoUI();
+        clearTimeout(this._reloadTimer);
+        this._reloadTimer = setTimeout(() => {
+            const needed = w.capacity - w.ammo;
+            const take = Math.min(needed, w.reserve);
+            w.ammo += take;
+            w.reserve -= take;
+            this.isReloading = false;
+            this.updateAmmoUI();
+        }, 2000);
     }
 
     updateBandageUI() {
@@ -182,13 +230,13 @@ export class Player {
         if (el) el.textContent = `BANDAGES: ${this.bandages} | ${this.bandages > 0 ? 'READY' : 'DEPLETED'}`;
     }
 
-    update(delta, terrain) {
+    update(delta) {
         if (this.isDead) return;
-        this.terrain = terrain;
 
-        const groundY = terrain.getHeight(this.body.position.x, this.body.position.z);
+        const groundY = this.terrain.getHeight(this.body.position.x, this.body.position.z);
         const minY = groundY + 1.5;
-        this.canJump = (this.body.position.y <= minY + 0.2);
+        // Generous threshold; collision event also resets canJump
+        this.canJump = (this.body.position.y <= minY + 0.5) || (Math.abs(this.body.velocity.y) < 0.5 && this.body.position.y < minY + 1.0);
         if (this.body.position.y < minY) {
             this.body.position.y = minY;
             this.body.velocity.y = Math.max(this.body.velocity.y, 0);
@@ -198,9 +246,9 @@ export class Player {
         const pos = this.body.position;
         const eps = 1.0;
         const normal = new THREE.Vector3(
-            terrain.getHeight(pos.x - eps, pos.z) - terrain.getHeight(pos.x + eps, pos.z),
+            this.terrain.getHeight(pos.x - eps, pos.z) - this.terrain.getHeight(pos.x + eps, pos.z),
             2 * eps,
-            terrain.getHeight(pos.x, pos.z - eps) - terrain.getHeight(pos.x, pos.z + eps)
+            this.terrain.getHeight(pos.x, pos.z - eps) - this.terrain.getHeight(pos.x, pos.z + eps)
         ).normalize();
 
         const yawQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, this.yaw, 0));
@@ -213,7 +261,7 @@ export class Player {
         else if (this.moveState.backward) wishDir.sub(forward);
 
         const isMoving = wishDir.length() > 0;
-        const speed = this.walkSpeed * (this.isSprinting ? 1.8 : 1);
+        const speed = this.isSprinting ? this.sprintSpeed : this.walkSpeed;
 
         if (isMoving) {
             wishDir.normalize();
@@ -235,9 +283,9 @@ export class Player {
 
         if (this.moveState.jump && this.canJump) { this.body.velocity.y = 16; this.canJump = false; }
 
-        // Shooting
+        // Shooting (blocked during reload)
         const w = this.weapons[this.currentWeaponIndex];
-        if (this.moveState.shoot) {
+        if (this.moveState.shoot && !this.isReloading) {
             this.fireTimer += delta;
             if (this.fireTimer >= w.fireRate) { this.shoot(); this.fireTimer = 0; }
         } else {
@@ -264,15 +312,21 @@ export class Player {
             const p = this.projectiles[i];
             p.life -= delta;
             p.mesh.position.add(p.velocity.clone().multiplyScalar(delta));
-            if (p.life <= 0) { this.scene.remove(p.mesh); this.projectiles.splice(i, 1); }
+            if (p.life <= 0) {
+                this.scene.remove(p.mesh);
+                p.mesh.geometry.dispose();
+                p.mesh.material.dispose();
+                this.projectiles.splice(i, 1);
+            }
         }
     }
 
     shoot() {
         const w = this.weapons[this.currentWeaponIndex];
-        if (w.ammo <= 0) return;
+        if (w.ammo <= 0 || this.isReloading) return;
         w.ammo--;
         this.updateAmmoUI();
+        if (w.ammo === 0) { setTimeout(() => this.reload(), 100); return; }
 
         if (this.audio) this.audio.playGunshot();
 

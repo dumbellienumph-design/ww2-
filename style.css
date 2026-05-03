@@ -3,7 +3,7 @@ body {
     overflow: hidden;
     background: #000;
     font-family: 'Courier New', Courier, monospace;
-    color: #ff0;
+    color: #0f0;
 }
 
 #game-canvas {
@@ -43,7 +43,7 @@ body {
 h1 {
     font-size: 6rem;
     margin: 0;
-    color: #ff0;
+    color: #0f0;
     text-shadow: 0 0 30px rgba(255, 255, 0, 0.4), 3px 3px 0px #000;
     letter-spacing: 15px;
     font-weight: 900;
@@ -52,7 +52,7 @@ h1 {
 .brand-line {
     font-size: 1.2rem;
     letter-spacing: 10px;
-    color: #ff0;
+    color: #0f0;
     opacity: 0.8;
     margin-top: 10px;
 }
@@ -61,7 +61,7 @@ h1 {
     max-width: 700px;
     background: rgba(40, 40, 0, 0.3);
     padding: 2.5rem;
-    border-left: 5px solid #ff0;
+    border-left: 5px solid #0f0;
     margin-bottom: 3rem;
     box-shadow: 0 20px 50px rgba(0,0,0,0.5);
 }
@@ -69,7 +69,7 @@ h1 {
 .mission-brief h3 {
     margin-top: 0;
     font-size: 1.8rem;
-    color: #ff0;
+    color: #0f0;
     border-bottom: 1px solid rgba(255, 255, 0, 0.2);
     padding-bottom: 15px;
 }
@@ -82,8 +82,8 @@ h1 {
 
 button {
     background: linear-gradient(to bottom, #4d4d00, #2b2b00);
-    border: 1px solid #ff0;
-    color: #ff0;
+    border: 1px solid #0f0;
+    color: #0f0;
     padding: 1.5rem 4rem;
     font-size: 1.5rem;
     cursor: pointer;
@@ -96,7 +96,7 @@ button {
 }
 
 button:hover {
-    background: #ff0;
+    background: #0f0;
     color: #000;
     box-shadow: 0 0 40px rgba(255, 255, 0, 0.6);
     transform: translateY(-5px);
@@ -156,8 +156,8 @@ button:hover {
 #loading-bar {
     width: 0%;
     height: 100%;
-    background: #ff0;
-    box-shadow: 0 0 20px #ff0;
+    background: #0f0;
+    box-shadow: 0 0 20px #0f0;
     transition: width 0.05s linear;
 }
 
@@ -254,7 +254,7 @@ button:hover {
     pointer-events: none;
     z-index: 55;
     text-align: center;
-    color: #ff0;
+    color: #0f0;
     font-weight: bold;
     transform: translate(-50%, -100%);
     text-shadow: 2px 2px 4px #000;
@@ -287,7 +287,7 @@ button:hover {
     left: 3rem;
     background: rgba(0,0,0,0.7);
     padding: 15px 30px;
-    border-left: 4px solid #ff0;
+    border-left: 4px solid #0f0;
     font-size: 1.3rem;
     display: flex;
     flex-direction: column;
@@ -298,13 +298,13 @@ button:hover {
     width: 200px;
     height: 10px;
     background: rgba(255, 255, 0, 0.1);
-    border: 1px solid #ff0;
+    border: 1px solid #0f0;
 }
 
 #health-bar {
     width: 100%;
     height: 100%;
-    background: #ff0;
+    background: #0f0;
     transition: width 0.3s;
 }
 
@@ -327,7 +327,7 @@ button:hover {
     width: 400px;
     height: 40px;
     background: linear-gradient(90deg, transparent, rgba(0,20,0,0.8), transparent);
-    border-bottom: 2px solid #ff0;
+    border-bottom: 2px solid #0f0;
     overflow: hidden;
     z-index: 60;
 }
@@ -351,7 +351,7 @@ button:hover {
     transform: translateX(-50%);
     width: 4px;
     height: 10px;
-    background: #ff0;
+    background: #0f0;
 }
 
 /* --- CLASS UI --- */
@@ -362,7 +362,7 @@ button:hover {
     text-align: right;
     background: rgba(0,0,0,0.7);
     padding: 15px 30px;
-    border-right: 4px solid #ff0;
+    border-right: 4px solid #0f0;
     font-size: 1.1rem;
 }
 
@@ -370,7 +370,7 @@ button:hover {
     display: block;
     font-size: 1.5rem;
     font-weight: 900;
-    color: #ff0;
+    color: #0f0;
 }
 
 /* --- KILLSTREAK UI --- */
@@ -388,7 +388,7 @@ button:hover {
 }
 
 #killstreak-container.ready {
-    border-bottom: 3px solid #ff0;
+    border-bottom: 3px solid #0f0;
     color: #fff;
     box-shadow: 0 0 20px rgba(255, 255, 0, 0.2);
 }
@@ -407,14 +407,14 @@ button:hover {
     left: 25rem;
     background: rgba(0,0,0,0.7);
     padding: 10px 20px;
-    border-bottom: 3px solid #ff0;
+    border-bottom: 3px solid #0f0;
     font-size: 0.9rem;
     color: #fff;
     min-width: 150px;
 }
 
 #rank-indicator span {
-    color: #ff0;
+    color: #0f0;
     font-weight: 900;
     font-size: 1.1rem;
 }
@@ -429,7 +429,7 @@ button:hover {
     width: 80vh;
     height: 80vh;
     background: rgba(0, 20, 0, 0.9);
-    border: 3px solid #ff0;
+    border: 3px solid #0f0;
     display: none;
     z-index: 80;
     box-shadow: 0 0 100px rgba(0,0,0,1);
@@ -448,7 +448,7 @@ button:hover {
     position: absolute;
     top: -40px;
     left: 0;
-    color: #ff0;
+    color: #0f0;
     font-weight: bold;
     letter-spacing: 5px;
 }
@@ -466,7 +466,7 @@ button:hover {
     justify-content: center;
     align-items: center;
     z-index: 1000;
-    color: #ff0;
+    color: #0f0;
 }
 
 #scoreboard-overlay.active {
@@ -476,7 +476,7 @@ button:hover {
 .sb-box {
     width: 600px;
     background: rgba(20, 20, 0, 0.5);
-    border: 2px solid #ff0;
+    border: 2px solid #0f0;
     padding: 3rem;
     box-shadow: 0 0 50px rgba(255, 255, 0, 0.1);
 }
@@ -515,7 +515,7 @@ button:hover {
     right: 3rem;
     width: 200px;
     height: 200px;
-    border: 4px solid #ff0;
+    border: 4px solid #0f0;
     border-radius: 50%;
     background: #000;
     box-shadow: 0 0 30px rgba(0,0,0,0.8);
@@ -578,7 +578,7 @@ button:hover {
 .kill-msg {
     background: rgba(0, 0, 0, 0.6);
     padding: 5px 15px;
-    border-right: 3px solid #ff0;
+    border-right: 3px solid #0f0;
     font-size: 0.9rem;
     color: #fff;
     text-transform: uppercase;
@@ -587,7 +587,7 @@ button:hover {
 
 .kill-msg span.allied { color: #0f0; }
 .kill-msg span.enemy { color: #f00; }
-.kill-msg span.player { color: #ff0; font-weight: bold; }
+.kill-msg span.player { color: #0f0; font-weight: bold; }
 
 /* --- TACTICAL HUD: XP / SCORES --- */
 #tactical-notify {
@@ -606,7 +606,7 @@ button:hover {
 .xp-popup {
     font-size: 1.5rem;
     font-weight: 900;
-    color: #ff0;
+    color: #0f0;
     text-shadow: 0 0 10px rgba(255, 255, 0, 0.5);
     margin: 5px 0;
     animation: popupFade 1.5s ease-out forwards;
@@ -677,7 +677,7 @@ button:hover {
     gap: 15px;
     background: rgba(0, 20, 0, 0.8);
     padding: 2rem;
-    border: 2px solid #ff0;
+    border: 2px solid #0f0;
     z-index: 70;
     text-align: center;
 }
@@ -688,8 +688,8 @@ button:hover {
 
 .command-btn {
     background: #000;
-    border: 1px solid #ff0;
-    color: #ff0;
+    border: 1px solid #0f0;
+    color: #0f0;
     padding: 10px 20px;
     cursor: pointer;
     text-transform: uppercase;
@@ -698,7 +698,7 @@ button:hover {
 }
 
 .command-btn:hover {
-    background: #ff0;
+    background: #0f0;
     color: #000;
 }
 

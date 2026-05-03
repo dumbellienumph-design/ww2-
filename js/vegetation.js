@@ -17,8 +17,62 @@ export class Vegetation {
 
     init() {
         this.createGrass();
+        this.createTrees();
     }
 
+    createTrees() {
+        const treeCount = 2000;
+        const trunkMat = new THREE.MeshStandardMaterial({ color: 0x4d3a2a, roughness: 1 });
+        const leavesMat = new THREE.MeshStandardMaterial({ color: 0x2d4d2d, roughness: 1 });
+
+        const trunkGeo = new THREE.CylinderGeometry(0.5, 0.5, 8, 8);
+        const leavesGeo = new THREE.ConeGeometry(4, 12, 8);
+
+        const trunkMesh = new THREE.InstancedMesh(trunkGeo, trunkMat, treeCount);
+        const leavesMesh = new THREE.InstancedMesh(leavesGeo, leavesMat, treeCount);
+        trunkMesh.castShadow = true;
+        leavesMesh.castShadow = true;
+
+        const dummy = new THREE.Object3D();
+        let count = 0;
+
+        for (let i = 0; i < treeCount; i++) {
+            const x = (Math.random() - 0.5) * this.terrain.size;
+            const z = (Math.random() - 0.5) * this.terrain.size;
+            const y = this.terrain.getHeight(x, z);
+
+            if (y > 10 && y < 60) { // Forest areas
+                dummy.position.set(x, y, z);
+                const scale = 0.8 + Math.random() * 0.7;
+                dummy.scale.set(scale, scale, scale);
+                dummy.rotation.y = Math.random() * Math.PI;
+                dummy.updateMatrix();
+
+                trunkMesh.setMatrixAt(count, dummy.matrix);
+
+                dummy.position.y += 8 * scale; // Move leaves up
+                dummy.updateMatrix();
+                leavesMesh.setMatrixAt(count, dummy.matrix);
+
+                // Add physics body for the trunk
+                const shape = new CANNON.Box(new CANNON.Vec3(0.5 * scale, 4 * scale, 0.5 * scale));
+                const body = new CANNON.Body({ mass: 0, shape: shape });
+                body.position.set(x, y + 4 * scale, z);
+                this.world.addBody(body);
+
+                count++;
+            }
+        }
+
+        trunkMesh.count = count;
+        leavesMesh.count = count;
+        trunkMesh.instanceMatrix.needsUpdate = true;
+        leavesMesh.instanceMatrix.needsUpdate = true;
+
+        this.scene.add(trunkMesh);
+        this.scene.add(leavesMesh);
+    }
+	
     createGrass() {
         const bladeGeo = new THREE.PlaneGeometry(0.3, 0.4, 1, 2);
         bladeGeo.translate(0, 0.2, 0); // CRITICAL: Pivot at bottom
@@ -68,7 +122,7 @@ export class Vegetation {
             const finalY = this.terrain.getHeight(finalX, finalZ);
             
             // Exclude Mountain Tops
-            if (finalY >= 5 && finalY < 75) {
+            if (finalY >= 0 && finalY < 75) {
                 const hL = this.terrain.getHeight(finalX - 0.2, finalZ);
                 const hR = this.terrain.getHeight(finalX + 0.2, finalZ);
                 const hD = this.terrain.getHeight(finalX, finalZ - 0.2);
@@ -91,7 +145,7 @@ export class Vegetation {
         instancedMesh.count = count;
         instancedMesh.instanceMatrix.needsUpdate = true;
         instancedMesh.castShadow = false;
-        instancedMesh.receiveShadow = false;
+        instancedMesh.receiveShadow = true;
         instancedMesh.name = 'grass';
         instancedMesh.raycast = () => {}; 
         
