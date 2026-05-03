@@ -30,6 +30,7 @@ class Game {
         this.killCount = 0;
         this.isPaused = false;
         this.gameOver = false;
+        this._lockLostTime = 0;
 
         this.audio = new GameAudio();
 
@@ -135,8 +136,11 @@ class Game {
         });
 
         document.addEventListener('pointerlockchange', () => {
-            if (!document.pointerLockElement && !document.getElementById('start-overlay') && !this.gameOver && !this.isPaused) {
-                this.showPause();
+            if (!document.pointerLockElement) {
+                this._lockLostTime = Date.now();
+                if (!document.getElementById('start-overlay') && !this.gameOver && !this.isPaused) {
+                    this.showPause();
+                }
             }
         });
     }

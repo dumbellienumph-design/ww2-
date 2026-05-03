@@ -332,5 +332,12 @@ export class Player {
         return null;
     }
 
-    requestPointerLock() { this.domElement.requestPointerLock(); }
+    requestPointerLock() {
+        const elapsed = Date.now() - (window.game?._lockLostTime ?? 0);
+        const delay = Math.max(0, 1000 - elapsed);
+        clearTimeout(this._lockTimer);
+        this._lockTimer = setTimeout(() => {
+            try { this.domElement.requestPointerLock(); } catch (_) {}
+        }, delay);
+    }
 }
