@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import perlin from 'https://esm.sh/gh/joeiddon/perlin';
+import Noise from 'https://esm.sh/noisejs';
+
+const noise = new Noise(Math.random());
 
 export class Terrain {
     constructor(scene, world) {
@@ -12,8 +14,8 @@ export class Terrain {
 
         this.getBaseHeight = (x, z) => {
             const nx = x / 500, nz = z / 500;        
-            let h = perlin.noise(nx, 0, nz) * 200;
-            h += perlin.noise(nx * 4, 0, nz * 4) * 40;
+            let h = noise.perlin3(nx, 0, nz) * 200;
+            h += noise.perlin3(nx * 4, 0, nz * 4) * 40;
 
             const dist = Math.sqrt(x*x + z*z);
             const plateauRadius = 150;
@@ -22,7 +24,7 @@ export class Terrain {
             const smoothT = Math.min(1, t * t * (3 - 2 * t)); 
 
             const centerHeight = 5; 
-            const mountainess = (perlin.noise(nx*2, 0, nz*2) * 0.5 + 0.5); 
+            const mountainess = (noise.perlin3(nx*2, 0, nz*2) * 0.5 + 0.5); 
             const plateauHeight = centerHeight + mountainess * 15; 
 
             h = h * smoothT + plateauHeight * (1 - smoothT);       

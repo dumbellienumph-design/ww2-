@@ -7,7 +7,8 @@ export class Vegetation {
         this.world = world;
         this.terrain = terrain;
         
-        this.grassCount = 150000;
+        this.grassCount = 40000;
+        this.treeInstances = [];
         this.objects = []; 
         this.grass = null;
         this.windTime = 0;
@@ -54,12 +55,11 @@ export class Vegetation {
                 dummy.updateMatrix();
                 leavesMesh.setMatrixAt(count, dummy.matrix);
 
-                // Add physics body for the trunk
-                const shape = new CANNON.Box(new CANNON.Vec3(0.5 * scale, 4 * scale, 0.5 * scale));
-                const body = new CANNON.Body({ mass: 0, shape: shape });
-                body.isTree = true;
-                body.position.set(x, y + 4 * scale, z);
-                this.world.addBody(body);
+                this.treeInstances.push({
+                    position: new CANNON.Vec3(x, y + 4 * scale, z),
+                    scale: scale,
+                    body: null
+                });
 
                 count++;
             }
@@ -170,8 +170,32 @@ export class Vegetation {
         this.world.bodies.filter(b => b.isTree).forEach(b => this.world.removeBody(b));
     }
 
-    update(delta) {
+    update(delta, playerPos) {
         this.windTime += delta;
         if (this.grassShader) this.grassShader.uniforms.uTime.value = this.windTime;
+
+        if (playerPos) {
+            const cullDistSq = 100 * 100;
+            this.treeInstances.forEach(tree => {
+                const dx = tree.position.x - playerPos.x;
+                const dz = tree.position.z - playerPos.z;
+                const distSq = dx * dx + dz * dz;
+
+                if (distSq < cullDistSq) {
+                    if (!tree.body) {
+                        const shape = new CANNON.Box(new CANNON.Vec3(0.5 * tree.scale, 4 * tree.scale, 0.5 * tree.scale));
+                        tree.body = new CANNON.Body({ mass: 0, shape: shape });
+                        tree.body.isTree = true;
+                        tree.body.position.copy(tree.position);
+                        this.world.addBody(tree.body);
+                    }
+                } else {
+                    if (tree.body) {
+                        this.world.removeBody(tree.body);
+                        tree.body = null;
+                    }
+                }
+            });
+        }
     }
 }

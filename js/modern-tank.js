@@ -164,5 +164,63 @@ export class ModernTank extends Tank {
 
         this.group.layers.enable(1);
         this.group.traverse(child => { child.layers.enable(1); });
+
+        // Idea 3: Antenna Physics - Setup
+        this.antenna = ewAntenna;
+        this.antennaTime = 0;
+    }
+
+    update(delta, controls, camera) {
+        super.update(delta, controls, camera);
+        if (this.isDestroyed) return;
+
+        const ctrl = controls.moveState || controls;
+        const isMoving = ctrl.forward || ctrl.backward || ctrl.left || ctrl.right;
+        const speed = this.body.velocity.length();
+
+        // Idea 1: Dynamic Exhaust
+        this.exhaustTimer += delta;
+        if (this.exhaustTimer > (isMoving ? 0.05 : 0.2)) {
+            const worldPosL = new THREE.Vector3(); this.exhaustL.getWorldPosition(worldPosL);
+            const worldPosR = new THREE.Vector3(); this.exhaustR.getWorldPosition(worldPosR);
+            const smokeVel = new THREE.Vector3(0, 1.5, 2).applyQuaternion(this.group.quaternion);
+            
+            if (this.particles) {
+                // Thicker smoke when moving or high throttle
+                const isHeavy = isMoving || speed > 5;
+                this.particles.createExhaustSmoke(worldPosL, smokeVel, isHeavy);
+                this.particles.createExhaustSmoke(worldPosR, smokeVel, isHeavy);
+            }
+            this.exhaustTimer = 0;
+        }
+
+        // Idea 3: Antenna Sway
+        this.antennaTime += delta * (speed * 0.5 + 1);
+        this.antenna.rotation.z = Math.sin(this.antennaTime * 4) * 0.05 * (speed / 15 + 0.1);
+        this.antenna.rotation.x = Math.cos(this.antennaTime * 3) * 0.03 * (speed / 15 + 0.1);
+
+        // Idea 4: Tread Dust
+        if (isMoving && speed > 2 && this.particles) {
+            if (Math.random() > 0.7) {
+                const dustPos = this.group.position.clone();
+                dustPos.y += 0.5;
+                // Simple dust puff
+                this.particles.createExhaustSmoke(dustPos, new THREE.Vector3(0, 0.5, 0), false);
+            }
+        }
+    }
+
+    fire() {
+        super.fire();
+        // Idea 2: Muzzle Smoke
+        if (this.particles) {
+            const tip = new THREE.Vector3(0, 0, -8.0).applyMatrix4(this.barrelGroup.matrixWorld);
+            const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(this.barrelGroup.getWorldQuaternion(new THREE.Quaternion()));
+            // Spawn a lingering smoke cloud at the tip
+            for(let i=0; i<5; i++) {
+                const cloudVel = dir.clone().multiplyScalar(2).add(new THREE.Vector3((Math.random()-0.5)*2, (Math.random()-0.5)*2, (Math.random()-0.5)*2));
+                this.particles.createExhaustSmoke(tip, cloudVel, true);
+            }
+        }
     }
 }

@@ -72,6 +72,7 @@ export class Tank {
             angularDamping: 0.1
         });
         this.body.shapeOffsets[0].set(0, 0.5, 0);
+        this.body.userData = { gameEntity: this };
         this.world.addBody(this.body);
         this.body.mesh = this.group;
     }

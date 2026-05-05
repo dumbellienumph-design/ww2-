@@ -57,6 +57,14 @@ class Game {
         this.onWindowResize = this.onWindowResize.bind(this);
         window.addEventListener('resize', this.onWindowResize);
         this.createStartOverlay();
+        // Auto-start for testing
+        setTimeout(() => {
+            const overlay = document.getElementById('start-overlay');
+            if (overlay) overlay.remove();
+            this.player.requestPointerLock();
+            this.audio.startAmbient();
+            this.animate();
+        }, 100);
     }
 
     destroy() {
@@ -443,7 +451,7 @@ class Game {
             }
         }
 
-        if (this.vegetation) this.vegetation.update(delta);
+        if (this.vegetation) this.vegetation.update(delta, this.player.body.position);
         this.particles.update(delta, this.player.camera);
         this.particles.updateRain(delta, this.player.camera);
         this.projectiles.update(delta);

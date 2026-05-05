@@ -445,12 +445,9 @@ export class Player {
 
         this.camera.rotation.set(this.pitch, this.yaw, 0);
         this.camera.position.set(pos.x, pos.y + 1.8, pos.z);
+    }
 
-        // --- Projectiles ---
-        // Projectiles are now handled by window.game.projectiles
-        }
-
-        shoot() {
+    shoot() {
         const w = this.weapons[this.currentWeaponIndex];
         if (w.ammo <= 0 || this.isReloading) return;
         w.ammo--;
@@ -463,7 +460,6 @@ export class Player {
         this.muzzle.getWorldPosition(muzzlePos);
         const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
 
-        this.muzzleLight.position.copy(muzzlePos);
         this.muzzleLight.intensity = 40 + Math.random() * 20;
         if (this.particles) this.particles.createMuzzleFlash(muzzlePos, dir);
 
@@ -480,7 +476,7 @@ export class Player {
             if (hit) {
                 if (hit.face) VFX.createImpactVFX(this.scene, hit.point, hit.face.normal);
 
-                const hitObject = hit.object.userData.gameEntity || this._findPhysicsBody(hit.object);
+                const hitObject = this._findPhysicsBody(hit.object);
                 if (hitObject && hitObject.onHit) {
                     hitObject.onHit(w.damage);
                 } else if (this.terrain && hit.object === this.terrain.mesh) {
@@ -494,16 +490,20 @@ export class Player {
                 }
             }
         }
-        }
+    }
+
     _findPhysicsBody(mesh) {
         let obj = mesh;
         while (obj) {
-            // Check for a direct link on userData
+            if (obj.userData.gameEntity) return obj.userData.gameEntity;
             if (obj.userData.physicsBody) return obj.userData.physicsBody;
             
-            // Fallback to iterating world bodies (less efficient)
+            // Check if the object itself is a mesh linked to a body
             const body = this.world.bodies.find(b => b.mesh === obj);
-            if (body) return body;
+            if (body) {
+                if (body.userData && body.userData.gameEntity) return body.userData.gameEntity;
+                return body;
+            }
             
             obj = obj.parent;
         }
