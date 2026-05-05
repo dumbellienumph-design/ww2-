@@ -49,7 +49,7 @@ export class ParticleSystem {
     }
 
     createFire(pos, size = 1, life = 1) {
-        const count = 3; // Reduced for performance
+        const count = 3; 
         for(let i=0; i<count; i++) {
             const mat = new THREE.MeshBasicMaterial({ color: 0xff4400, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending });
             const p = new THREE.Mesh(ParticleSystem.fireGeo, mat);
@@ -116,7 +116,7 @@ export class ParticleSystem {
         if (!isTank) this.ejectShell(position, direction);
         this.createExhaustSmoke(position, direction.clone().multiplyScalar(isTank ? 4 : 1), false);
         
-        const sparkCount = isTank ? 20 : 4; // Reduced from 40/6
+        const sparkCount = isTank ? 20 : 4; 
         for(let i=0; i<sparkCount; i++) {
             const sparkMat = new THREE.MeshBasicMaterial({ color: 0xffdd44, transparent: true, blending: THREE.AdditiveBlending });
             const spark = new THREE.Mesh(ParticleSystem.sparkGeo, sparkMat);
@@ -181,7 +181,7 @@ export class ParticleSystem {
         // Update Muzzle Flashes
         for (let i = this.muzzleFlashes.length - 1; i >= 0; i--) {
             const f = this.muzzleFlashes[i];
-            f.life -= f.speed * delta * 60; // Normalize to 60fps
+            f.life -= f.speed * delta * 60; 
             if (f.life <= 0) {
                 this.scene.remove(f.group);
                 f.core.material.dispose(); f.bloom.material.dispose(); f.mainJet.material.dispose();

@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import Noise from 'https://esm.sh/noisejs';
+import noisejs from 'https://esm.sh/noisejs';
 
-const noise = new Noise(Math.random());
+const NoiseConstructor = (typeof noisejs === 'function') ? noisejs : (noisejs.Noise || noisejs);
+const noise = new NoiseConstructor(Math.random());
 
 export class Terrain {
     constructor(scene, world) {
@@ -42,7 +43,6 @@ export class Terrain {
             const iz = Math.floor(gz);
             
             if (ix >= 0 && ix < this.resolution && iz >= 0 && iz < this.resolution) {
-                // Bilinear interpolation for smooth height
                 const fx = gx - ix;
                 const fz = gz - iz;
                 
@@ -89,7 +89,7 @@ export class Terrain {
         this.mesh = new THREE.Mesh(geometry, material);
         this.mesh.rotation.x = -Math.PI / 2;
         this.mesh.receiveShadow = true;
-        this.mesh.layers.enable(1); // minimap visibility
+        this.mesh.layers.enable(1); 
         this.scene.add(this.mesh);
 
         const hfShape = new CANNON.Heightfield(this.matrix, { elementSize: this.elementSize });
@@ -116,8 +116,7 @@ export class Terrain {
                     const dx = (i - gx) * this.elementSize;        
                     const dz = (j - gz) * this.elementSize;        
                     const distSq = dx*dx + dz*dz;
-                    const rSq = radius * radius;
-                    if (distSq < rSq) {
+                    if (distSq < radius * radius) {
                         changed = true;
                         const strength = 1 - Math.sqrt(distSq) / radius;
                         const deform = depth * strength;
