@@ -16,8 +16,8 @@ export class Player {
         this.camera.rotation.order = 'YXZ';
         this.camera.layers.enable(1); // So it can see the gun model on layer 1
 
-        this.walkSpeed = 24;
-        this.sprintSpeed = 40;
+        this.walkSpeed = 45;
+        this.sprintSpeed = 75;
         this.health = 100;
         this.maxHealth = 100;
         this.bandages = 3;

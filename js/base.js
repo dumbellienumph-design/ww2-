@@ -166,7 +166,7 @@ export class Base {
         const worldX = this.position.x + x;
         const worldZ = this.position.z + z;
         const groundY = this.terrain.getHeight(worldX, worldZ);
-        const localY = groundY - this.position.y;
+        const localY = groundY - this.position.y - 0.2; // Sink in slightly
 
         const tw = new THREE.Group();
         tw.position.set(x, localY, z);

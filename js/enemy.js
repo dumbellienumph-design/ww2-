@@ -20,7 +20,7 @@ export class Enemy {
         this.state = STATE.PATROL;
         this.isDead = false;
         this.faction = 'enemy';
-        this.awarenessDistance = 120;
+        this.awarenessDistance = 250;
 
         this.spawnPos = position.clone();
         this.waypoints = [];

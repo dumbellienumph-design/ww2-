@@ -42,7 +42,7 @@ export class Vegetation {
             const z = (Math.random() - 0.5) * this.terrain.size;
             const y = this.terrain.getHeight(x, z);
 
-            if (y > 10 && y < 60) { // Forest areas
+            if (y > 4 && y < 80) { // Forest areas - expanded to include plateau
                 dummy.position.set(x, y, z);
                 const scale = 0.8 + Math.random() * 0.7;
                 dummy.scale.set(scale, scale, scale);
@@ -67,6 +67,7 @@ export class Vegetation {
 
         trunkMesh.count = count;
         leavesMesh.count = count;
+        console.log(`[Vegetation] Created ${count} trees`);
         trunkMesh.instanceMatrix.needsUpdate = true;
         leavesMesh.instanceMatrix.needsUpdate = true;
 
@@ -111,7 +112,7 @@ export class Vegetation {
             if (Math.random() > 0.85) continue;
 
             const worldX = positions[i * 3];
-            const worldZ = -positions[i * 3 + 1];
+            const worldZ = positions[i * 3 + 1]; // Fixed: Removed negative sign
             
             // Randomize the pattern
             const jitterX = (Math.random() - 0.5) * this.terrain.elementSize * 0.8;
@@ -123,7 +124,7 @@ export class Vegetation {
             const finalY = this.terrain.getHeight(finalX, finalZ);
             
             // Exclude Mountain Tops
-            if (finalY >= 0 && finalY < 75) {
+            if (finalY >= 3 && finalY < 85) { // Adjusted range for grass
                 const hL = this.terrain.getHeight(finalX - 0.2, finalZ);
                 const hR = this.terrain.getHeight(finalX + 0.2, finalZ);
                 const hD = this.terrain.getHeight(finalX, finalZ - 0.2);
@@ -198,4 +199,6 @@ export class Vegetation {
             });
         }
     }
+}
+ }
 }
