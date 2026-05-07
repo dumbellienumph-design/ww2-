@@ -25,12 +25,12 @@ class Game {
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
         this.scene = new THREE.Scene();
-        this.fogColor = new THREE.Color(0x1a2e1a); // Dark Green Fog
+        this.fogColor = new THREE.Color(0x2b2b26); // War-torn grey-ish fog
         this.scene.background = this.fogColor.clone();
-        this.scene.fog = new THREE.FogExp2(this.fogColor.clone(), 0.005);
+        this.scene.fog = new THREE.FogExp2(this.fogColor.clone(), 0.007); // Slightly denser
 
         this.world = new CANNON.World();
-        this.world.gravity.set(0, -30, 0); // Slightly stronger gravity
+        this.world.gravity.set(0, -9.81 * 3, 0); // Realistic gravity (scaled)
 
         this.enemies = [];
         this.spawnedTanks = [];

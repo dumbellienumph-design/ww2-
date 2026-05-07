@@ -57,6 +57,13 @@ export class Player {
         this.pitch = 0;
         this.yaw = 0;
 
+        // Recoil system
+        this.recoilY = 0;
+        this.recoilX = 0;
+        this.recoilVelY = 0;
+        this.recoilVelX = 0;
+        this.shakeAmount = 0;
+
         this.initPhysics();
         this.initControls();
         this.initWeaponVisuals();
@@ -443,7 +450,20 @@ export class Player {
             this.updateHealthUI();
         }
 
-        this.camera.rotation.set(this.pitch, this.yaw, 0);
+        // --- Recoil and Shake Update ---
+        const recoilRecovery = 15;
+        this.recoilVelY -= this.recoilY * 40 * delta;
+        this.recoilVelX -= this.recoilX * 40 * delta;
+        this.recoilVelY *= (1 - 10 * delta);
+        this.recoilVelX *= (1 - 10 * delta);
+        this.recoilY += this.recoilVelY * delta;
+        this.recoilX += this.recoilVelX * delta;
+        
+        this.shakeAmount *= (1 - 10 * delta);
+        const shakeX = (Math.random() - 0.5) * this.shakeAmount;
+        const shakeY = (Math.random() - 0.5) * this.shakeAmount;
+
+        this.camera.rotation.set(this.pitch + this.recoilY + shakeY, this.yaw + this.recoilX + shakeX, 0);
         this.camera.position.set(pos.x, pos.y + 1.8, pos.z);
     }
 
@@ -452,6 +472,12 @@ export class Player {
         if (w.ammo <= 0 || this.isReloading) return;
         w.ammo--;
         this.updateAmmoUI();
+        
+        // Trigger Recoil
+        this.recoilVelY += 0.15 + Math.random() * 0.1;
+        this.recoilVelX += (Math.random() - 0.5) * 0.1;
+        this.shakeAmount = 0.05;
+
         if (w.ammo === 0) { this.autoReloadTimer = 0.1; return; }
 
         if (this.audio) this.audio.playGunshot();

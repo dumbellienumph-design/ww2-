@@ -77,6 +77,42 @@ export class GameAudio {
         src.start();
     }
 
+    playSonicCrack() {
+        this._init();
+        if (!this.enabled) return;
+        const duration = 0.05;
+        const bufLen = Math.floor(this.ctx.sampleRate * duration);
+        const buf = this.ctx.createBuffer(1, bufLen, this.ctx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < bufLen; i++) data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i/bufLen, 5);
+        const src = this.ctx.createBufferSource();
+        src.buffer = buf;
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(0.4, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + duration);
+        src.connect(gain); gain.connect(this.ctx.destination);
+        src.start();
+    }
+
+    playImpact() {
+        this._init();
+        if (!this.enabled) return;
+        const duration = 0.1;
+        const bufLen = Math.floor(this.ctx.sampleRate * duration);
+        const buf = this.ctx.createBuffer(1, bufLen, this.ctx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < bufLen; i++) data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i/bufLen, 2) * 0.5;
+        const src = this.ctx.createBufferSource();
+        src.buffer = buf;
+        const lp = this.ctx.createBiquadFilter();
+        lp.type = 'lowpass'; lp.frequency.value = 800;
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(0.8, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + duration);
+        src.connect(lp); lp.connect(gain); gain.connect(this.ctx.destination);
+        src.start();
+    }
+
     playFootstep() {
         this._init();
         if (!this.enabled) return;

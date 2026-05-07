@@ -200,5 +200,3 @@ export class Vegetation {
         }
     }
 }
- }
-}

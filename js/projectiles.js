@@ -81,6 +81,7 @@ export class ProjectileManager {
                 hitEntity.takeDamage(damage);
             }
             VFX.createImpactVFX(this.scene, body.position, new THREE.Vector3().copy(e.contact.ni).negate());
+            if (window.game?.audio) window.game.audio.playImpact();
             body.userData.life = 0;
         });
 
@@ -99,11 +100,16 @@ export class ProjectileManager {
             isTracer: true,
             mesh: tracer,
             velocity: dir.clone().multiplyScalar(speed),
+            gravity: new THREE.Vector3(0, -9.81, 0),
+            owner: owner,
+            hasCracked: false,
             life: 1.5
         });
     }
 
     update(delta) {
+        const playerPos = window.game?.player?.body?.position;
+        
         for (let i = this.projectiles.length - 1; i >= 0; i--) {
             const p = this.projectiles[i];
             
@@ -124,7 +130,21 @@ export class ProjectileManager {
                     this.scene.remove(p.mesh);
                     this.projectiles.splice(i, 1);
                 } else {
+                    // Apply gravity
+                    if (p.gravity) p.velocity.add(p.gravity.clone().multiplyScalar(delta));
+                    
+                    const oldPos = p.mesh.position.clone();
                     p.mesh.position.add(p.velocity.clone().multiplyScalar(delta));
+                    p.mesh.lookAt(p.mesh.position.clone().add(p.velocity));
+
+                    // Sonic Crack Logic
+                    if (playerPos && !p.hasCracked && p.owner !== window.game.player) {
+                        const distToPlayer = p.mesh.position.distanceTo(playerPos);
+                        if (distToPlayer < 8) {
+                            window.game.audio.playSonicCrack();
+                            p.hasCracked = true;
+                        }
+                    }
                 }
             }
         }
