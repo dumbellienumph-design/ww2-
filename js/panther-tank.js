@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import { Tank } from './tank.js';
 
 export class PantherTank extends Tank {
-    constructor(scene, world, terrain, position, audio, particles) {
-        super(scene, world, terrain, position, audio, particles);
+    constructor(scene, world, terrain, position, audio, particles, modelPath) {
+        super(scene, world, terrain, position, audio, particles, modelPath);
     }
     initVisuals() {
         const textureLoader = new THREE.TextureLoader();
@@ -20,7 +20,6 @@ export class PantherTank extends Tank {
         const darkSteel = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, metalness: 0.8, roughness: 0.4 });
 
         const vOffset = -0.5;
-        this.group.clear();
 
         // Hull - Sloped like a Panther
         const hullGroup = new THREE.Group();
@@ -43,10 +42,8 @@ export class PantherTank extends Tank {
         trackR.position.x = 2.0;
         hullGroup.add(trackR);
 
-        // Turret
-        this.turretGroup = new THREE.Group();
+        // Turret (Reusing placeholder)
         this.turretGroup.position.set(0, 1.6 + vOffset, 0);
-        this.group.add(this.turretGroup);
 
         const turretBase = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.8, 1.0, 8), pantherMaterial);
         this.turretGroup.add(turretBase);
@@ -56,10 +53,8 @@ export class PantherTank extends Tank {
         mantlet.position.set(0, 0, -1.8);
         this.turretGroup.add(mantlet);
 
-        // Barrel
-        this.barrelGroup = new THREE.Group();
+        // Barrel (Reusing placeholder)
         this.barrelGroup.position.set(0, 0, -1.8);
-        this.turretGroup.add(this.barrelGroup);
 
         const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.22, 6.0), darkSteel);
         barrel.rotateX(Math.PI / 2);
@@ -70,6 +65,10 @@ export class PantherTank extends Tank {
         muzzle.rotateX(Math.PI / 2);
         muzzle.position.z = -6.0;
         this.barrelGroup.add(muzzle);
+
+        // Anchors
+        this.chaseCameraAnchor.position.set(0, 6, 12);
+        this.sniperCameraAnchor.position.set(0, 0.3, -1.5);
 
         this.group.layers.enable(1);
         this.group.traverse(child => {

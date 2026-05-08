@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
+import { GLTFLoader } from 'https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
 import { VFX } from './vfx.js';
 
 const STATE = { PATROL: 0, ALERT: 1, ATTACK: 2 };
@@ -8,24 +9,26 @@ const PLAYER_GROUP = 1;
 const GROUND_GROUP = 4;
 
 export class Enemy {
-    constructor(scene, world, terrain, position, game) {
+    constructor(scene, world, terrain, position, game, modelPath, fast = false) {
         this.scene = scene;
         this.world = world;
         this.terrain = terrain;
         this.game = game;
+        this.modelPath = modelPath;
+        this.isFast = fast;
 
-        this.maxHealth = 100;
-        this.health = 100;
-        this.speed = 8;
+        this.maxHealth = fast ? 300 : 100;
+        this.health = this.maxHealth;
+        this.speed = fast ? 70 : 12; 
         this.state = STATE.PATROL;
         this.isDead = false;
         this.faction = 'enemy';
-        this.awarenessDistance = 250;
+        this.awarenessDistance = fast ? 800 : 250;
 
         this.spawnPos = position.clone();
         this.waypoints = [];
         this.currentWaypoint = 0;
-        this.shootTimer = 1 + Math.random() * 2;
+        this.shootTimer = fast ? 0.3 : 1 + Math.random() * 2;
         this.alertTimer = 0;
         this.animTimer = Math.random() * 10;
         this.bullets = [];
@@ -33,6 +36,16 @@ export class Enemy {
         this.group = new THREE.Group();
         this.group.userData.gameEntity = this;
         this.scene.add(this.group);
+
+        // Required placeholders to prevent runtime errors during async load
+        this.armGroup = new THREE.Group();
+        this.head = new THREE.Object3D();
+        this.torso = new THREE.Object3D();
+        this.leftLeg = new THREE.Object3D();
+        this.rightLeg = new THREE.Object3D();
+        this.group.add(this.armGroup);
+        this.weapon = new THREE.Object3D(); // Added placeholder
+        this.group.add(this.weapon);
 
         this.healthBarGroup = new THREE.Group();
         this.scene.add(this.healthBarGroup);
@@ -51,7 +64,7 @@ export class Enemy {
 
     _buildWaypoints() {
         this._waypointsReady = true;
-        const spread = 60;
+        const spread = this.isFast ? 150 : 60;
         for (let i = 0; i < 6; i++) {
             const x = this.spawnPos.x + (Math.random() - 0.5) * spread;
             const z = this.spawnPos.z + (Math.random() - 0.5) * spread;
@@ -61,9 +74,11 @@ export class Enemy {
     }
 
     initPhysics(position) {
+        const height = this.isFast ? 1.8 : 0.9;
+        const radius = this.isFast ? 0.6 : 0.4;
         this.body = new CANNON.Body({
-            mass: 80,
-            shape: new CANNON.Box(new CANNON.Vec3(0.4, 0.9, 0.4)),
+            mass: this.isFast ? 150 : 80,
+            shape: new CANNON.Box(new CANNON.Vec3(radius, height, radius)),
             position: new CANNON.Vec3(position.x, position.y, position.z),
             fixedRotation: true,
             linearDamping: 0.5,
@@ -77,12 +92,41 @@ export class Enemy {
     }
 
     initVisuals() {
+        if (this.modelPath) {
+            const loader = new GLTFLoader();
+            loader.load(this.modelPath, (gltf) => {
+                const model = gltf.scene;
+                model.traverse(child => {
+                    if (child.isMesh) {
+                        child.castShadow = true;
+                        child.receiveShadow = true;
+                        if (this.isFast && child.material) {
+                            child.material.color.multiplyScalar(0.5); 
+                        }
+                    }
+                });
+                
+                if (this.isFast) model.scale.set(2.5, 2.5, 2.5);
+                else model.scale.set(1, 1, 1);
+
+                model.position.y = this.isFast ? -1.8 : -0.9;
+                this.group.add(model);
+                this.model = model;
+            }, undefined, (error) => {
+                console.error("Failed to load enemy model:", error);
+                this._fallbackVisuals();
+            });
+        } else {
+            this._fallbackVisuals();
+        }
+    }
+
+    _fallbackVisuals() {
         const legHeight = 0.5;
         const legY = -0.65;
-
-        const uniformMat = new THREE.MeshStandardMaterial({ color: 0x4a4e4d });
-        const skinMat = new THREE.MeshStandardMaterial({ color: 0xdbac98 });
-        const gearMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
+        const uniformMat = new THREE.MeshStandardMaterial({ color: this.isFast ? 0x220000 : 0x4a4e4d });
+        const skinMat = new THREE.MeshStandardMaterial({ color: this.isFast ? 0x660000 : 0xdbac98 });
+        const gearMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
 
         this.torso = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.7, 0.3), uniformMat);
         this.torso.position.y = -0.05;
@@ -106,9 +150,10 @@ export class Enemy {
         this.rightLeg.position.set(0.15, legY, 0);
         this.group.add(this.rightLeg);
 
-        this.armGroup = new THREE.Group();
-        this.armGroup.position.y = 0.15;
-        this.group.add(this.armGroup);
+        const ag = new THREE.Group();
+        ag.position.y = 0.15;
+        this.group.add(ag);
+        this.armGroup = ag;
 
         const armL = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.5, 0.15), uniformMat);
         armL.position.set(-0.35, -0.1, 0);
@@ -121,6 +166,8 @@ export class Enemy {
         this.weapon = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.1, 1.0), gearMat);
         this.weapon.position.set(0, -0.2, -0.4);
         this.armGroup.add(this.weapon);
+
+        if (this.isFast) this.group.scale.set(1.5, 1.5, 1.5);
     }
 
     initHealthBar() {
@@ -159,21 +206,24 @@ export class Enemy {
         this.isDead = true;
         if (this.game) this.game.onEnemyKilled(this);
 
-        const partData = [
-            { mesh: this.torso, size: [0.6, 0.7, 0.3] },
-            { mesh: this.head, size: [0.25, 0.25, 0.25] },
-            { mesh: this.leftLeg, size: [0.2, 0.5, 0.2] },
-            { mesh: this.rightLeg, size: [0.2, 0.5, 0.2] }
-        ].map(p => {
-            const worldPos = new THREE.Vector3();
-            p.mesh.getWorldPosition(worldPos);
-            return { ...p, worldPos, worldQuat: p.mesh.getWorldQuaternion(new THREE.Quaternion()) };
-        });
+        let partData = [];
+        if (this.torso && this.head && this.torso.isMesh) {
+            partData = [
+                { mesh: this.torso, size: [0.6, 0.7, 0.3] },
+                { mesh: this.head, size: [0.25, 0.25, 0.25] },
+                { mesh: this.leftLeg, size: [0.2, 0.5, 0.2] },
+                { mesh: this.rightLeg, size: [0.2, 0.5, 0.2] }
+            ].map(p => {
+                const worldPos = new THREE.Vector3();
+                p.mesh.getWorldPosition(worldPos);
+                return { ...p, worldPos, worldQuat: p.mesh.getWorldQuaternion(new THREE.Quaternion()) };
+            });
+        }
 
         this.group.traverse(child => {
             if (child.isMesh) {
-                child.geometry.dispose();
-                if (child.material.isMaterial) child.material.dispose();
+                if (child.geometry) child.geometry.dispose();
+                if (child.material && child.material.isMaterial) child.material.dispose();
             }
         });
         this.scene.remove(this.group);
@@ -187,27 +237,25 @@ export class Enemy {
         this.scene.remove(this.healthBarGroup);
         this.world.removeBody(this.body);
 
-        const ragdolls = partData.map(pd => {
-            const m = pd.mesh.clone();
-            m.position.copy(pd.worldPos);
-            m.quaternion.copy(pd.worldQuat);
-            this.scene.add(m);
+        if (partData.length > 0) {
+            const ragdolls = partData.map(pd => {
+                const m = pd.mesh.clone();
+                m.position.copy(pd.worldPos);
+                m.quaternion.copy(pd.worldQuat);
+                this.scene.add(m);
 
-            const rb = new CANNON.Body({
-                mass: 5,
-                shape: new CANNON.Box(new CANNON.Vec3(pd.size[0] / 2, pd.size[1] / 2, pd.size[2] / 2)),
-                position: new CANNON.Vec3(pd.worldPos.x, pd.worldPos.y, pd.worldPos.z),
-                quaternion: new CANNON.Quaternion(pd.worldQuat.x, pd.worldQuat.y, pd.worldQuat.z, pd.worldQuat.w)
+                const rb = new CANNON.Body({
+                    mass: 5,
+                    shape: new CANNON.Box(new CANNON.Vec3(pd.size[0] / 2, pd.size[1] / 2, pd.size[2] / 2)),
+                    position: new CANNON.Vec3(pd.worldPos.x, pd.worldPos.y, pd.worldPos.z),
+                    quaternion: new CANNON.Quaternion(pd.worldQuat.x, pd.worldQuat.y, pd.worldQuat.z, pd.worldQuat.w)
+                });
+                rb.velocity.set((Math.random() - 0.5) * 4, Math.random() * 4, (Math.random() - 0.5) * 4);
+                rb.angularVelocity.set((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8);
+                this.world.addBody(rb);
+                return { mesh: m, body: rb, life: 6.0 };
             });
-            rb.velocity.set((Math.random() - 0.5) * 4, Math.random() * 4, (Math.random() - 0.5) * 4);
-            rb.angularVelocity.set((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8);
-            this.world.addBody(rb);
-            
-            return { mesh: m, body: rb, life: 6.0 };
-        });
-
-        if (this.game) {
-            this.game.addRagdolls(ragdolls);
+            if (this.game) this.game.addRagdolls(ragdolls);
         }
     }
 
@@ -240,7 +288,7 @@ export class Enemy {
         const dz = playerPos.z - myPos.z;
         const dist = Math.sqrt(dx * dx + dz * dz);
         this.group.lookAt(playerPos.x, this.group.position.y, playerPos.z);
-        this.armGroup.rotation.x = 0;
+        if (this.armGroup) this.armGroup.rotation.x = 0;
 
         if (dist > 22) {
             this.body.velocity.x = (dx / dist) * this.speed;
@@ -248,53 +296,57 @@ export class Enemy {
         } else {
             this.body.velocity.x *= 0.6;
             this.body.velocity.z *= 0.6;
-            this.state = STATE.ATTACK;
         }
     }
 
-    _doAttack(delta, playerPos, myPos, player) {
+    _doAttack(delta, playerPos, myPos) {
         const dx = playerPos.x - myPos.x;
         const dz = playerPos.z - myPos.z;
         const dist = Math.sqrt(dx * dx + dz * dz);
 
         this.group.lookAt(playerPos.x, this.group.position.y, playerPos.z);
-        this.armGroup.rotation.x = -1.2;
-        this.body.velocity.x *= 0.7;
-        this.body.velocity.z *= 0.7;
+        
+        if (this.armGroup) {
+            this.armGroup.rotation.x = -1.2;
+        }
 
-        if (dist > 80) { this.state = STATE.ALERT; this.alertTimer = 10; return; }
+        if (dist > 25) {
+            this.body.velocity.x = (dx / dist) * this.speed;
+            this.body.velocity.z = (dz / dist) * this.speed;
+        } else {
+            this.body.velocity.x *= 0.8;
+            this.body.velocity.z *= 0.8;
+        }
 
         this.shootTimer -= delta;
         if (this.shootTimer <= 0) {
-            this.shootTimer = 1.2 + Math.random() * 1.8;
-            this._fireAt(playerPos, player);
+            this.shoot(playerPos);
+            this.shootTimer = this.isFast ? 0.3 : 1.5 + Math.random();
         }
     }
 
-    _fireAt(targetPos, player) {
-        const startPos = new THREE.Vector3();
-        this.weapon.getWorldPosition(startPos);
-
-        const dir = new THREE.Vector3().subVectors(targetPos, startPos).normalize();
-        dir.x += (Math.random() - 0.5) * 0.1;
-        dir.y += (Math.random() - 0.5) * 0.1;
-        dir.z += (Math.random() - 0.5) * 0.1;
-        dir.normalize();
-
-        const bulletSpeed = 120;
-        window.game.projectiles.spawnProjectile(startPos, dir, bulletSpeed, 8, this);
+    shoot(playerPos) {
+        if (this.isDead) return;
+        const muzzlePos = new THREE.Vector3();
+        if (this.weapon) this.weapon.getWorldPosition(muzzlePos);
+        else muzzlePos.copy(this.group.position).add(new THREE.Vector3(0, 0.5, -0.5).applyQuaternion(this.group.quaternion));
+        
+        const dir = playerPos.clone().sub(muzzlePos).normalize();
+        this.game.projectiles.spawnProjectile(muzzlePos, dir, 400, 15, this);
     }
 
     update(delta, playerPos, player) {
         if (this.isDead) return;
-        if (!this._waypointsReady && this.terrain) this._buildWaypoints();
+
+        if (!this._waypointsReady && this.terrain && this.terrain.isLoaded) {
+            this._buildWaypoints();
+        }
 
         const myPos = this.body.position;
 
         const groundY = this._snapToTerrain(myPos.x, myPos.z);
-        const halfHeight = this.body.shapes[0].halfExtents.y;
+        const halfHeight = this.isFast ? 1.8 : 0.9;
 
-        // Anti-Phasing: Teleport back if way below ground
         if (myPos.y < groundY - 10) {
             myPos.y = groundY + 5;
             this.body.velocity.y = 0;
@@ -305,37 +357,27 @@ export class Enemy {
             this.body.velocity.y = Math.max(0, this.body.velocity.y);
         }
 
-        const distToPlayer = myPos.distanceTo(playerPos);
+        const distToPlayer = myPos.distanceTo(new CANNON.Vec3(playerPos.x, playerPos.y, playerPos.z));
 
-        if (this.state === STATE.PATROL && distToPlayer < this.awarenessDistance) {
-            const forward = new THREE.Vector3();
-            this.group.getWorldDirection(forward);
-            const toPlayer = new THREE.Vector3().subVectors(playerPos, myPos).normalize();
-            const dot = forward.dot(toPlayer);
-
-            if (dot > 0.5 || distToPlayer < 10) {
-                this.state = STATE.ALERT;
-                this.alertTimer = 15;
-            }
+        if (distToPlayer < this.awarenessDistance) {
+            this.state = STATE.ATTACK;
+        } else if (this.state === STATE.ATTACK) {
+            this.state = STATE.ALERT;
+            this.alertTimer = 12;
         }
 
-        switch (this.state) {
-            case STATE.PATROL: this._doPatrol(delta, myPos); break;
-            case STATE.ALERT: this._doAlert(delta, playerPos, myPos); break;
-            case STATE.ATTACK: this._doAttack(delta, playerPos, myPos, player); break;
-        }
+        if (this.state === STATE.PATROL) this._doPatrol(delta, myPos);
+        else if (this.state === STATE.ALERT) this._doAlert(delta, playerPos, myPos);
+        else if (this.state === STATE.ATTACK) this._doAttack(delta, playerPos, myPos);
 
-        this.group.position.copy(myPos);
-        this.healthBarGroup.position.copy(myPos);
+        this.group.position.set(myPos.x, myPos.y, myPos.z);
+        this.group.quaternion.set(this.body.quaternion.x, this.body.quaternion.y, this.body.quaternion.z, this.body.quaternion.w);
 
-        if (player && player.camera) {
-            this.healthBar.quaternion.copy(player.camera.quaternion);
-            this.healthBarBg.quaternion.copy(player.camera.quaternion);
-        }
+        this.healthBarGroup.position.set(myPos.x, myPos.y + (this.isFast ? 3.0 : 1.8), myPos.z);
+        this.healthBarGroup.lookAt(player.camera.position);
 
-        const spd = Math.sqrt(this.body.velocity.x ** 2 + this.body.velocity.z ** 2);
-        this.animTimer += delta * (spd + 0.5);
-        if (spd > 0.5) {
+        this.animTimer += delta * (this.state === STATE.PATROL ? 1 : 2);
+        if (!this.model) {
             this.leftLeg.position.z = Math.sin(this.animTimer * 5) * 0.2;
             this.rightLeg.position.z = Math.cos(this.animTimer * 5) * 0.2;
             this.torso.position.y = -0.05 + Math.abs(Math.sin(this.animTimer * 10)) * 0.05;

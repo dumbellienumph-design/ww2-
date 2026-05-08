@@ -75,7 +75,7 @@ export class Terrain {
             const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
 
             const vertices = this.mesh.geometry.attributes.position.array;
-            const displacementScale = 180; // High for mountains
+            const displacementScale = 350; // Augmented height for extreme mountains
 
             for (let i = 0; i <= this.resolution; i++) {
                 for (let j = 0; j <= this.resolution; j++) {

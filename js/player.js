@@ -11,40 +11,29 @@ export class Player {
         this.particles = particles;
         this.terrain = terrain;
 
-        this.baseFOV = 75;
-        this.camera = new THREE.PerspectiveCamera(this.baseFOV, window.innerWidth / window.innerHeight, 0.1, 5000);
-        this.camera.rotation.order = 'YXZ';
-        this.camera.layers.enable(1); // So it can see the gun model on layer 1
-
+        this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+        
+        this.moveState = { forward: false, backward: false, left: false, right: false, jump: false, shoot: false, ads: false };
         this.walkSpeed = 45;
         this.sprintSpeed = 75;
+        this.isSprinting = false;
+        this.canJump = false;
+        this.jumpBuffer = 0;
+        this.footstepTimer = 0;
+
         this.health = 100;
         this.maxHealth = 100;
-        this.bandages = 3;
         this.isDead = false;
-        this.isSprinting = false;
+        this.lastDamageTime = 0;
+        this.healthRegenDelay = 5.0; 
+        this.healthRegenRate = 10.0;
         
+        this.bandages = 3;
         this.isReloading = false;
         this.reloadTimer = 0;
         this.autoReloadTimer = 0;
-
-        this.lastDamageTime = -Infinity;
-        this.healthRegenDelay = 5; // seconds
-        this.healthRegenRate = 3; // hp per second
-        
-        this.footstepTimer = 0;
-        this.canJump = false;
-
         this.suppressionOverlayTimer = 0;
         this.hitmarkerTimer = 0;
-
-        this.moveState = {
-            forward: false, backward: false, left: false, right: false,
-            jump: false, shoot: false, ads: false
-        };
-
-        this.isDriving = false;
-        this.drivingTank = null;
 
         this.weapons = [{
             name: 'M1 Garand', fireRate: 0.45, damage: 35,
@@ -94,8 +83,10 @@ export class Player {
         const groundMat = new CANNON.Material("groundMaterial");
         this.world.bodies.forEach(b => { if (b.mass === 0) b.material = groundMat; });
         const cm = new CANNON.ContactMaterial(material, groundMat, {
-            friction: 2.0, restitution: 0.0,
-            contactEquationStiffness: 1e8, contactEquationRelaxation: 3
+            friction: 5.0, 
+            restitution: 0.0,
+            contactEquationStiffness: 1e8,
+            contactEquationRelaxation: 3
         });
         this.world.addContactMaterial(cm);
     }
@@ -121,9 +112,7 @@ export class Player {
         document.removeEventListener('mousedown', this.handleMouseDown);
         document.removeEventListener('mouseup', this.handleMouseUp);
 
-        // No more setTimeouts for game logic, but keep UX related ones if any
         if (this._lockTimer) clearTimeout(this._lockTimer);
-
         if (this.camera) this.scene.remove(this.camera);
         if (this.body) this.world.removeBody(this.body);
     }
@@ -145,57 +134,54 @@ export class Player {
         }
     }
     handleMouseUp(e) {
-        if (document.pointerLockElement === this.domElement && e.button === 0) {
-            this.moveState.shoot = false;
-        }
+        if (e.button === 0) this.moveState.shoot = false;
     }
 
-    onKey(code, isPressed) {
-        switch (code) {
-            case 'KeyW': this.moveState.forward = isPressed; break;
-            case 'KeyS': this.moveState.backward = isPressed; break;
-            case 'KeyA': this.moveState.left = isPressed; break;
-            case 'KeyD': this.moveState.right = isPressed; break;
-            case 'KeyE': if (isPressed) this.toggleVehicle(); break;
-            case 'Space': this.moveState.jump = isPressed; break;
-            case 'ShiftLeft': case 'ShiftRight': this.isSprinting = isPressed; break;
-            case 'KeyF': if (isPressed) this.useBandage(); break;
-            case 'KeyR': if (isPressed) this.reload(); break;
+    onKey(code, isDown) {
+        if (code === 'KeyW') this.moveState.forward = isDown;
+        if (code === 'KeyS') this.moveState.backward = isDown;
+        if (code === 'KeyA') this.moveState.left = isDown;
+        if (code === 'KeyD') this.moveState.right = isDown;
+        if (code === 'Space') { 
+            this.moveState.jump = isDown;
+            if (isDown) this.jumpBuffer = 0.15; // Buffer jump for 150ms
         }
+        if (code === 'ShiftLeft') this.isSprinting = isDown;
+        if (code === 'KeyR' && isDown) this.reload();
+        if (code === 'KeyF' && isDown) this.useBandage();
+        
+        if (code === 'KeyE' && isDown) this.tryEnterTank();
+        if (code === 'KeyQ' && isDown) this.exitTank();
+        if (code === 'MouseButtonRight' || code === 'ControlLeft') this.moveState.ads = isDown;
     }
 
-    toggleVehicle() {
-        if (this.isDriving) {
-            this.exitTank();
-        } else {
-            // Find nearest tank
-            let nearest = null;
-            let minDist = 10;
-            const tanks = [window.game.modernTank, ...window.game.spawnedTanks].filter(t => t && !t.isDestroyed);
-            tanks.forEach(t => {
-                const dist = this.body.position.distanceTo(t.body.position);
-                if (dist < minDist) {
-                    minDist = dist;
-                    nearest = t;
-                }
-            });
-
-            if (nearest) {
-                this.enterTank(nearest);
+    tryEnterTank() {
+        if (this.isDriving) return;
+        const mt = window.game.modernTank;
+        if (mt && !mt.isOccupied && !mt.isDestroyed) {
+            const dist = this.body.position.distanceTo(mt.body.position);
+            if (dist < 10) {
+                this.enterTank(mt);
+                return;
             }
         }
+        window.game.spawnedTanks.forEach(t => {
+            if (!t.isOccupied && !t.isDestroyed) {
+                const dist = this.body.position.distanceTo(t.body.position);
+                if (dist < 10) this.enterTank(t);
+            }
+        });
     }
 
     enterTank(tank) {
-        this.isDriving = true;
         this.drivingTank = tank;
         tank.isOccupied = true;
+        this.isDriving = true;
         this.body.mass = 0;
         this.body.type = CANNON.Body.KINEMATIC;
-        this.body.collisionFilterMask = 0; // Don't collide with anything while in tank
+        this.body.collisionFilterMask = 0; 
         this.gunGroup.visible = false;
         
-        // Hide crosshair UI if any, show tank UI
         const hint = document.getElementById('tactical-notify');
         if (hint) {
             const el = document.createElement('div');
@@ -217,7 +203,6 @@ export class Player {
         this.body.type = CANNON.Body.DYNAMIC;
         this.body.collisionFilterMask = -1;
         
-        // Position player next to tank
         const exitOffset = new THREE.Vector3(5, 2, 0).applyQuaternion(tank.group.quaternion);
         this.body.position.set(tank.body.position.x + exitOffset.x, tank.body.position.y + exitOffset.y, tank.body.position.z + exitOffset.z);
         this.body.velocity.set(0, 0, 0);
@@ -229,8 +214,17 @@ export class Player {
         this.gunGroup = new THREE.Group();
         this.gunGroup.layers.set(1);
 
-        const steel = new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.9, roughness: 0.3 });
-        const walnut = new THREE.MeshStandardMaterial({ color: 0x3d2b1f, roughness: 0.8 });
+        const steel = new THREE.MeshStandardMaterial({ 
+            color: 0x1a1c1a, 
+            metalness: 0.95, 
+            roughness: 0.25,
+            flatShading: false
+        });
+        const walnut = new THREE.MeshStandardMaterial({ 
+            color: 0x2a1b15, 
+            roughness: 0.95, 
+            metalness: 0.05 
+        });
 
         const add = (geo, mat, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0) => {
             const m = new THREE.Mesh(geo, mat);
@@ -272,7 +266,7 @@ export class Player {
         const overlay = document.getElementById('suppression-overlay');
         if (overlay) {
             overlay.classList.add('active');
-            this.suppressionOverlayTimer = 0.35; // Start timer
+            this.suppressionOverlayTimer = 0.35;
         }
 
         if (this.health <= 0) this._die();
@@ -309,7 +303,7 @@ export class Player {
         if (this.isReloading || w.ammo >= w.capacity || w.reserve <= 0) return;
         
         this.isReloading = true;
-        this.reloadTimer = w.reloadTime; // Set timer
+        this.reloadTimer = w.reloadTime;
         this.updateAmmoUI();
     }
 
@@ -322,13 +316,8 @@ export class Player {
         if (this.isDead) return;
 
         if (this.isDriving && this.drivingTank) {
-            // Update tank with player controls
             this.drivingTank.update(delta, this.moveState, this.camera);
-            
-            // Sync player position to tank (for UI/Minimap consistency)
             this.body.position.copy(this.drivingTank.body.position);
-            
-            // Handle Camera for Tank
             const anchor = this.moveState.ads ? this.drivingTank.sniperCameraAnchor : this.drivingTank.chaseCameraAnchor;
             const targetPos = new THREE.Vector3();
             anchor.getWorldPosition(targetPos);
@@ -341,12 +330,11 @@ export class Player {
             } else {
                 this.camera.rotation.set(this.pitch, this.yaw, 0);
             }
-            
-            // Skip infantry updates
             return;
         }
 
-        // --- Timers ---
+        if (this.jumpBuffer > 0) this.jumpBuffer -= delta;
+
         if (this.suppressionOverlayTimer > 0) {
             this.suppressionOverlayTimer -= delta;
             if (this.suppressionOverlayTimer <= 0) {
@@ -380,17 +368,16 @@ export class Player {
             }
         }
 
-        // --- Physics and Movement ---
         const groundY = this.terrain ? this.terrain.getHeight(this.body.position.x, this.body.position.z) : 0;
         const minY = groundY + 1.5;
         
-        // Anti-Phasing: If we are way below ground, teleport back up
         if (this.body.position.y < groundY - 10) {
             this.body.position.y = groundY + 5;
             this.body.velocity.y = 0;
         }
 
-        this.canJump = (this.body.position.y <= minY + 0.5) || (Math.abs(this.body.velocity.y) < 0.5 && this.body.position.y < minY + 1.0);
+        this.canJump = (this.body.position.y <= minY + 1.25);
+
         if (this.body.position.y < minY) {
             this.body.position.y = minY;
             this.body.velocity.y = Math.max(this.body.velocity.y, 0);
@@ -421,7 +408,6 @@ export class Player {
             const slope = wishDir.clone().sub(normal.clone().multiplyScalar(wishDir.dot(normal))).normalize();
             this.body.velocity.x = slope.x * speed;
             this.body.velocity.z = slope.z * speed;
-            if (this.canJump && !this.moveState.jump) this.body.velocity.y = slope.y * speed;
 
             this.footstepTimer += delta;
             if (this.footstepTimer >= (this.isSprinting ? 0.28 : 0.48)) {
@@ -434,9 +420,12 @@ export class Player {
             this.footstepTimer = 0;
         }
 
-        if (this.moveState.jump && this.canJump) { this.body.velocity.y = 16; this.canJump = false; }
+        if (this.jumpBuffer > 0 && this.canJump) {
+            this.body.velocity.y = 17;
+            this.jumpBuffer = 0;
+            this.canJump = false;
+        }
 
-        // --- Shooting ---
         const w = this.weapons[this.currentWeaponIndex];
         if (this.moveState.shoot && !this.isReloading) {
             this.fireTimer += delta;
@@ -445,20 +434,16 @@ export class Player {
             this.fireTimer = w.fireRate;
         }
 
-        // Muzzle flash decay
         if (this.muzzleLight.intensity > 0) {
-            this.muzzleLight.intensity *= (1 - 40 * delta); // Smoother decay
+            this.muzzleLight.intensity *= (1 - 40 * delta);
             if (this.muzzleLight.intensity < 0.1) this.muzzleLight.intensity = 0;
         }
 
-        // --- Health Regen ---
         if ((window.game.elapsedTime - this.lastDamageTime) > this.healthRegenDelay && this.health < this.maxHealth) {
             this.health = Math.min(this.maxHealth, this.health + this.healthRegenRate * delta);
             this.updateHealthUI();
         }
 
-        // --- Recoil and Shake Update ---
-        const recoilRecovery = 15;
         this.recoilVelY -= this.recoilY * 40 * delta;
         this.recoilVelX -= this.recoilX * 40 * delta;
         this.recoilVelY *= (1 - 10 * delta);
@@ -480,7 +465,6 @@ export class Player {
         w.ammo--;
         this.updateAmmoUI();
         
-        // Trigger Recoil
         this.recoilVelY += 0.15 + Math.random() * 0.1;
         this.recoilVelX += (Math.random() - 0.5) * 0.1;
         this.shakeAmount = 0.05;
@@ -496,7 +480,6 @@ export class Player {
         this.muzzleLight.intensity = 40 + Math.random() * 20;
         if (this.particles) this.particles.createMuzzleFlash(muzzlePos, dir);
 
-        // --- NEW PROJECTILE SYSTEM ---
         const tracerSpeed = 800;
         window.game.projectiles.spawnProjectile(muzzlePos, dir, tracerSpeed, w.damage, this, true);
 
@@ -530,14 +513,11 @@ export class Player {
         while (obj) {
             if (obj.userData.gameEntity) return obj.userData.gameEntity;
             if (obj.userData.physicsBody) return obj.userData.physicsBody;
-            
-            // Check if the object itself is a mesh linked to a body
             const body = this.world.bodies.find(b => b.mesh === obj);
             if (body) {
                 if (body.userData && body.userData.gameEntity) return body.userData.gameEntity;
                 return body;
             }
-            
             obj = obj.parent;
         }
         return null;

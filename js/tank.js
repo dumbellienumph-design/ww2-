@@ -1,19 +1,36 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
+import { GLTFLoader } from 'https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
 import { VFX } from './vfx.js';
 
 export class Tank {
-    constructor(scene, world, terrain, position, audio, particles) {
+    constructor(scene, world, terrain, position, audio, particles, modelPath) {
         this.scene = scene;
         this.world = world;
         this.terrain = terrain;
         this.audio = audio;
         this.particles = particles;
+        this.modelPath = modelPath;
         
         this.group = new THREE.Group();
         this.scene.add(this.group);
 
         this.initPhysics(position);
+        
+        // Initialize placeholders for async loading
+        this.turretGroup = new THREE.Group();
+        this.barrelGroup = new THREE.Group();
+        this.chaseCameraAnchor = new THREE.Object3D();
+        this.sniperCameraAnchor = new THREE.Object3D();
+        this.chaseCameraAnchor.position.set(0, 6, 12);
+        this.sniperCameraAnchor.position.set(0, 0.5, -1.0);
+        this.exhaustL = new THREE.Object3D();
+        this.exhaustR = new THREE.Object3D();
+        this.group.add(this.turretGroup);
+        this.turretGroup.add(this.barrelGroup);
+        this.group.add(this.chaseCameraAnchor);
+        this.turretGroup.add(this.sniperCameraAnchor);
+
         this.initVisuals();
         
         this.group.layers.enable(1);
@@ -78,6 +95,54 @@ export class Tank {
     }
 
     initVisuals() {
+        if (this.modelPath) {
+            const loader = new GLTFLoader();
+            loader.load(this.modelPath, (gltf) => {
+                const model = gltf.scene;
+                model.traverse(child => {
+                    if (child.isMesh) {
+                        child.castShadow = true;
+                        child.receiveShadow = true;
+                        // Apply dark metallic weathering
+                        if (child.material) {
+                            child.material.metalness = 0.8;
+                            child.material.roughness = 0.4;
+                            child.material.color.multiplyScalar(0.7);
+                        }
+                    }
+                });
+
+                // Standard scaling for high-detail models
+                model.scale.set(0.02, 0.02, 0.02); 
+                model.position.y = -0.5;
+                this.group.add(model);
+
+                // Heuristic search for turret and barrel
+                model.traverse(child => {
+                    if (child.name.toLowerCase().includes('turret')) this.turretGroup = child;
+                    if (child.name.toLowerCase().includes('barrel') || child.name.toLowerCase().includes('gun')) this.barrelGroup = child;
+                });
+
+                if (!this.turretGroup) this.turretGroup = model;
+                if (!this.barrelGroup) this.barrelGroup = this.turretGroup;
+
+                // Anchors for high-detail model
+                this.chaseCameraAnchor = new THREE.Object3D();
+                this.chaseCameraAnchor.position.set(0, 6, 12); 
+                this.group.add(this.chaseCameraAnchor);
+                this.sniperCameraAnchor = new THREE.Object3D();
+                this.sniperCameraAnchor.position.set(0, 0.3, -1.5); 
+                this.turretGroup.add(this.sniperCameraAnchor);
+            }, undefined, (error) => {
+                console.error("Failed to load tank model:", error);
+                this._fallbackVisuals();
+            });
+        } else {
+            this._fallbackVisuals();
+        }
+    }
+
+    _fallbackVisuals() {
         const tigerGrey = new THREE.MeshStandardMaterial({ 
             color: 0x2f3131, 
             roughness: 0.9, 

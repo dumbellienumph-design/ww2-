@@ -30,7 +30,7 @@ class Game {
         this.scene.fog = new THREE.FogExp2(this.fogColor.clone(), 0.01); // Slightly denser for 'fog of war'
 
         this.world = new CANNON.World();
-        this.world.gravity.set(0, -9.81 * 3, 0); // Realistic gravity (scaled)
+        this.world.gravity.set(0, -24, 0); // Tuned for smoother movement and jumping
 
         this.enemies = [];
         this.spawnedTanks = [];
@@ -135,13 +135,6 @@ class Game {
         this.bases.push(new Base(this.scene, this.world, new THREE.Vector3(0, 0, 100), this, this.particles, this.terrain, false));
         this.bases.push(new Base(this.scene, this.world, new THREE.Vector3(0, 0, -350), this, this.particles, this.terrain, true));
 
-        const spawnPts = [[-20, -40], [20, -50], [-40, -60], [40, -55], [0, -70]];
-        spawnPts.forEach(([x, z]) => {
-            const y = this.terrain.getHeight(x, z) + 0.9;
-            const e = new Enemy(this.scene, this.world, this.terrain, new THREE.Vector3(x, y, z), this);
-            this.enemies.push(e);
-        });
-
         this.player.body.position.set(0, this.terrain.getHeight(0, 0) + 2, 0);
 
         const mtPos = new THREE.Vector3(20, this.terrain.getHeight(20, 20) + 0, 20);
@@ -159,24 +152,27 @@ class Game {
         pedBody.position.set(mtPos.x, mtPos.y + 2.5, mtPos.z);
         this.world.addBody(pedBody);
 
-        this.modernTank = new ModernTank(this.scene, this.world, this.terrain, new THREE.Vector3(mtPos.x, mtPos.y + 6, mtPos.z), this.audio, this.particles);
-    
-        this.spawnedTanks.push(new SketchfabTank(this.scene, this.world, this.terrain, new THREE.Vector3(0, 0, -350)));
+        this.modernTank = new ModernTank(this.scene, this.world, this.terrain, new THREE.Vector3(mtPos.x, mtPos.y + 6, mtPos.z), this.audio, this.particles, 'models/tiger.glb');    
+        // this.spawnedTanks.push(new SketchfabTank(this.scene, this.world, this.terrain, new THREE.Vector3(0, 0, -350), null, null, 'models/tiger.glb'));
 
-        this.initChicken();
+        this.initEnemies();
     }
 
-    initChicken() {
-        const spawnPoints = [
-            new THREE.Vector3(-5, 5, 95),
-            new THREE.Vector3(5, 5, 90),
-            new THREE.Vector3(-10, 5, 105)
-        ];
+    initEnemies() {
+        // Standard Soldiers (using soldier.glb)
+        const spawnPts = [[-20, -40], [20, -50], [-40, -60], [40, -55], [0, -70]];
+        spawnPts.forEach(([x, z]) => {
+            const y = this.terrain.getHeight(x, z) + 0.9;
+            const e = new Enemy(this.scene, this.world, this.terrain, new THREE.Vector3(x, y, z), this, 'models/soldier.glb');
+            this.enemies.push(e);
+        });
 
-        spawnPoints.forEach(pos => {
-            pos.y = this.terrain.getHeight(pos.x, pos.z) + 1;
-            const c = new Chicken(this.scene, this.world, this.terrain, pos, this);
-            this.chickens.push(c);
+        // Fast Monsters (using monster.glb - RobotExpressive)
+        const monsterPts = [[60, 100], [-60, 120], [100, -200]];
+        monsterPts.forEach(([x, z]) => {
+            const y = this.terrain.getHeight(x, z) + 1.8;
+            const m = new Enemy(this.scene, this.world, this.terrain, new THREE.Vector3(x, y, z), this, 'models/monster.glb', true);
+            this.enemies.push(m);
         });
     }
 
@@ -306,7 +302,12 @@ class Game {
     }
 
     spawnPanther() {
-        // Implementation omitted for brevity as per instructions to only fix requested items
+        if (!this.player) return;
+        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.player.camera.quaternion);
+        const spawnPos = new THREE.Vector3().copy(this.player.body.position).add(forward.multiplyScalar(20));
+        spawnPos.y = this.terrain.getHeight(spawnPos.x, spawnPos.z) + 2;
+        const panther = new PantherTank(this.scene, this.world, this.terrain, spawnPos, this.audio, this.particles, '/models/panther_tank.glb');
+        this.spawnedTanks.push(panther);
     }
 
     callAirstrike() {
@@ -422,7 +423,7 @@ class Game {
 
     animate() {
         requestAnimationFrame(() => this.animate());
-        if (this.isPaused || this.gameOver) return;
+        if (this.isPaused || this.gameOver || !this.player || !this.player.body) return;
 
         const delta = Math.min(this.clock.getDelta(), 0.05);
         this.elapsedTime += delta;
@@ -462,12 +463,12 @@ class Game {
         // --- VFX Update (Centralized delta-time based) ---
         VFX.update(delta);
 
-        const pp = this.player.body.position;
+        const pp = new THREE.Vector3(this.player.body.position.x, this.player.body.position.y, this.player.body.position.z);
         this.enemies.forEach(e => e.update(delta, pp, this.player));
 
-        if(this.modernTank && this.modernTank !== this.player.drivingTank) this.modernTank.update(delta, this.player);
+        if(this.modernTank && this.modernTank !== this.player.drivingTank) this.modernTank.update(delta, this.player, this.player.camera);
         this.spawnedTanks.forEach(t => {
-            if (t !== this.player.drivingTank) t.update(delta, this.player);
+            if (t !== this.player.drivingTank) t.update(delta, this.player, this.player.camera);
         });
         
         this.chickens.forEach(c => c.update(delta, pp));
