@@ -78,9 +78,22 @@ export class Tank {
     }
 
     initVisuals() {
-        const tigerGrey = new THREE.MeshStandardMaterial({ color: 0x4a4e4d, roughness: 0.8, metalness: 0.2 });
-        const darkSteel = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, metalness: 0.8, roughness: 0.4 });
-        const rustMetal = new THREE.MeshStandardMaterial({ color: 0x3d3535, metalness: 0.5, roughness: 0.7 });
+        const tigerGrey = new THREE.MeshStandardMaterial({ 
+            color: 0x2f3131, 
+            roughness: 0.9, 
+            metalness: 0.1,
+            flatShading: false
+        });
+        const darkSteel = new THREE.MeshStandardMaterial({ 
+            color: 0x111111, 
+            metalness: 0.6, 
+            roughness: 0.5 
+        });
+        const rustMetal = new THREE.MeshStandardMaterial({ 
+            color: 0x2d2424, 
+            metalness: 0.3, 
+            roughness: 0.8 
+        });
         const vOffset = -0.5;
         const mainHull = new THREE.Mesh(new THREE.BoxGeometry(4.8, 1.3, 7.5), tigerGrey);
         mainHull.position.y = 0.65 + vOffset;
@@ -197,8 +210,32 @@ export class Tank {
         this.body.angularVelocity.z *= 0.1;
 
         if (this.terrain) {
-            const groundY = this.terrain.getHeight(this.body.position.x, this.body.position.z);
+            const pos = this.body.position;
+            const groundY = this.terrain.getHeight(pos.x, pos.z);
             const halfHeight = 0.5;
+            
+            // --- Advanced Grounding (Slope Alignment) ---
+            const offset = 3.0; // Distance to sample from center
+            const hF = this.terrain.getHeight(pos.x, pos.z - offset);
+            const hB = this.terrain.getHeight(pos.x, pos.z + offset);
+            const hL = this.terrain.getHeight(pos.x - offset, pos.z);
+            const hR = this.terrain.getHeight(pos.x + offset, pos.z);
+
+            const pitch = Math.atan2(hF - hB, offset * 2);
+            const roll = Math.atan2(hR - hL, offset * 2);
+
+            // Anti-Phasing: Teleport back if way below ground
+            if (this.body.position.y < groundY - 10) {
+                this.body.position.y = groundY + 5;
+                this.body.velocity.y = 0;
+            }
+
+            // Smoothly align physics body to terrain
+            const targetQuat = new CANNON.Quaternion();
+            const currentEuler = new THREE.Euler().setFromQuaternion(this.group.quaternion, 'YXZ');
+            targetQuat.setFromEuler(pitch, currentEuler.y, roll, 'YXZ');
+            this.body.quaternion.slerp(targetQuat, 0.1, this.body.quaternion);
+
             if (this.body.position.y < groundY + halfHeight) {
                 this.body.position.y = groundY + halfHeight;
                 this.body.velocity.y = Math.max(0, this.body.velocity.y);

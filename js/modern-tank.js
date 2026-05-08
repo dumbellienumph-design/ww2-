@@ -6,10 +6,24 @@ export class ModernTank extends Tank {
         super(scene, world, terrain, position, audio, particles);
     }
     initVisuals() {
-        const matteGrey = new THREE.MeshStandardMaterial({ color: 0x888899, roughness: 0.9, metalness: 0.2 });
-        const darkRubber = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 1.0, metalness: 0.0 });
-        const whiteRubber = new THREE.MeshStandardMaterial({ color: 0xdddddd });
-        const sensorGlass = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x002222, roughness: 0.1 });
+        const matteGrey = new THREE.MeshStandardMaterial({ 
+            color: 0x3a3d3d, 
+            roughness: 0.95, 
+            metalness: 0.05 
+        });
+        const darkRubber = new THREE.MeshStandardMaterial({ 
+            color: 0x0a0a0a, 
+            roughness: 1.0, 
+            metalness: 0.0 
+        });
+        const whiteRubber = new THREE.MeshStandardMaterial({ 
+            color: 0x888888 
+        });
+        const sensorGlass = new THREE.MeshStandardMaterial({ 
+            color: 0x004444, 
+            emissive: 0x001111, 
+            roughness: 0.1 
+        });
         const crewSkin = new THREE.MeshStandardMaterial({ color: 0xd2b48c });
         const crewHair = new THREE.MeshStandardMaterial({ color: 0x221100 });
 

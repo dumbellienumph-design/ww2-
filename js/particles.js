@@ -145,7 +145,11 @@ export class ParticleSystem {
     }
 
     createExhaustSmoke(position, velocity, isBlack = false) {
-        const mat = new THREE.MeshBasicMaterial({ color: isBlack ? 0x222222 : 0xaaaaaa, transparent: true, opacity: 0.15 });
+        const mat = new THREE.MeshBasicMaterial({ 
+            color: isBlack ? 0x0a0a0a : 0x333333, 
+            transparent: true, 
+            opacity: 0.3 
+        });
         const smoke = new THREE.Mesh(ParticleSystem.smokeGeo, mat);
         smoke.layers.set(1);
         smoke.position.copy(position);

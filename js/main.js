@@ -25,9 +25,9 @@ class Game {
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
         this.scene = new THREE.Scene();
-        this.fogColor = new THREE.Color(0x2b2b26); // War-torn grey-ish fog
+        this.fogColor = new THREE.Color(0x1e2225); // Colder, darker, oppressive grey for war-torn atmosphere
         this.scene.background = this.fogColor.clone();
-        this.scene.fog = new THREE.FogExp2(this.fogColor.clone(), 0.007); // Slightly denser
+        this.scene.fog = new THREE.FogExp2(this.fogColor.clone(), 0.01); // Slightly denser for 'fog of war'
 
         this.world = new CANNON.World();
         this.world.gravity.set(0, -9.81 * 3, 0); // Realistic gravity (scaled)
@@ -181,8 +181,10 @@ class Game {
     }
 
     initLights() {
-        this.scene.add(new THREE.AmbientLight(0xd0d0c8, 0.8));
-        const sun = new THREE.DirectionalLight(0xffffff, 0.5);
+        // Muted, cool grey ambient light to simulate an overcast, less vibrant environment
+        this.scene.add(new THREE.AmbientLight(0x8c928e, 0.4)); 
+        // Dull, desaturated white directional light with reduced intensity, mimicking sunlight filtered through heavy clouds or smoke
+        const sun = new THREE.DirectionalLight(0xc8c8c8, 0.3); 
         sun.position.set(200, 400, 100);
         sun.castShadow = true;
         sun.shadow.mapSize.set(2048, 2048);

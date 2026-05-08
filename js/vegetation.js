@@ -42,7 +42,9 @@ export class Vegetation {
             const z = (Math.random() - 0.5) * this.terrain.size;
             const y = this.terrain.getHeight(x, z);
 
-            if (y > 4 && y < 80) { // Forest areas - expanded to include plateau
+            // Populate mountainous terrain - limit to lower slopes/valleys for realism
+            if (y > 10 && y < 60) { 
+                if (Math.random() > 0.6) continue; // Moderate density
                 dummy.position.set(x, y, z);
                 const scale = 0.8 + Math.random() * 0.7;
                 dummy.scale.set(scale, scale, scale);
@@ -123,8 +125,9 @@ export class Vegetation {
             // Maintain 0 Distance
             const finalY = this.terrain.getHeight(finalX, finalZ);
             
-            // Exclude Mountain Tops
-            if (finalY >= 3 && finalY < 85) { // Adjusted range for grass
+            // Populate mountainous terrain - limit to lower slopes/valleys for realism
+            if (finalY >= 5 && finalY < 75) { 
+                if (Math.random() > 0.45) continue; // Moderate density
                 const hL = this.terrain.getHeight(finalX - 0.2, finalZ);
                 const hR = this.terrain.getHeight(finalX + 0.2, finalZ);
                 const hD = this.terrain.getHeight(finalX, finalZ - 0.2);

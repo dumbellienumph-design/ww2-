@@ -25,20 +25,34 @@ export class VFX {
         mesh.position.copy(position);
         scene.add(mesh);
 
-        const particleCount = 15; // Reduced from 25 for performance
+        const explosionLight = new THREE.PointLight(0xffa500, 50, radius * 3, 2);
+        explosionLight.position.copy(position);
+        scene.add(explosionLight);
+
+        const particleCount = 50;
         const particles = [];
+        
+        const fireParticleMat = new THREE.MeshBasicMaterial({ color: 0xcc3300 });
+        const smokeParticleMat = new THREE.MeshBasicMaterial({ color: 0x222222 });
+        const sparkParticleMat = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
+
         for(let i=0; i<particleCount; i++) {
-            const pMat = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
+            let pMat;
+            const rand = Math.random();
+            if (rand < 0.4) pMat = fireParticleMat;
+            else if (rand < 0.8) pMat = smokeParticleMat;
+            else pMat = sparkParticleMat;
+            
             const p = new THREE.Mesh(this.partGeo, pMat);
             p.position.copy(position);
             const dir = new THREE.Vector3((Math.random() - 0.5), (Math.random() - 0.5) + 0.5, (Math.random() - 0.5)).normalize();
-            p.userData.velocity = dir.multiplyScalar(Math.random() * 30 + 15);
+            p.userData.velocity = dir.multiplyScalar(Math.random() * 40 + 20);
             scene.add(p);
             particles.push({ mesh: p, mat: pMat });
         }
 
         this.createBurnMark(scene, position, radius);
-        this.spawnDirtChunks(scene, world, position, Math.floor(radius * 1.0));
+        this.spawnDirtChunks(scene, world, position, Math.floor(radius * 2));
 
         if (window.game && window.game.terrain) {
             window.game.terrain.deformAt(position, radius, radius * 0.4);
@@ -48,7 +62,7 @@ export class VFX {
             audio.play('explosion_blast', { randomPitch: true });
         }
 
-        const duration = 0.6;
+        const duration = 0.8;
         let elapsed = 0;
 
         this.activeEffects.push({
@@ -59,24 +73,26 @@ export class VFX {
                     scene.remove(mesh);
                     geo.dispose();
                     mat.dispose();
-                    particles.forEach(p => {
-                        scene.remove(p.mesh);
-                        p.mat.dispose();
-                    });
+                    fireParticleMat.dispose();
+                    smokeParticleMat.dispose();
+                    sparkParticleMat.dispose();
+                    particles.forEach(p => scene.remove(p.mesh));
+                    scene.remove(explosionLight);
                     return true;
                 }
                 mesh.scale.set(progress * 2.5, progress * 2.5, progress * 2.5);
                 mesh.material.opacity = 1 - progress;
+                explosionLight.intensity = Math.max(0, 50 * (1 - progress * 2));
+                
                 particles.forEach(p => {
                     p.mesh.position.add(p.mesh.userData.velocity.clone().multiplyScalar(delta));
-                    p.mesh.userData.velocity.y -= 31.25 * delta;
-                    p.mesh.userData.velocity.multiplyScalar(Math.pow(0.96, delta * 60)); 
+                    p.mesh.userData.velocity.y -= 50 * delta;
+                    p.mesh.userData.velocity.multiplyScalar(Math.pow(0.92, delta * 60));
                 });
                 return false;
             }
         });
 
-        // Physical explosion force
         world.bodies.forEach(body => {
             const dist = body.position.distanceTo(new CANNON.Vec3(position.x, position.y, position.z));
             if (dist < radius) {
@@ -103,18 +119,14 @@ export class VFX {
                     position.z + (Math.random()-0.5) * 2
                 )
             });
-            
             body.velocity.set((Math.random() - 0.5) * 15, 10 + Math.random() * 15, (Math.random() - 0.5) * 15);
             body.angularVelocity.set(Math.random()*10, Math.random()*10, Math.random()*10);
-            
             const mesh = new THREE.Mesh(this.chunkGeo, this.chunkMat);
             mesh.scale.set(size/0.4, size/0.4, size/0.4);
             scene.add(mesh);
             world.addBody(body);
-            
             let elapsed = 0;
             const lifespan = 4.0 + Math.random() * 2.0;
-            
             this.activeEffects.push({
                 update: (delta) => {
                     elapsed += delta;
@@ -138,11 +150,9 @@ export class VFX {
         mark.rotation.x = -Math.PI / 2;
         mark.position.copy(position);
         mark.position.y = (window.game?.terrain?.getHeight(position.x, position.z) || position.y) + 0.15;
-        
         scene.add(mark);
-        
         let elapsed = 0;
-        const duration = 15.0; // Reduced from 25
+        const duration = 15.0;
         this.activeEffects.push({
             update: (delta) => {
                 elapsed += delta;
@@ -159,8 +169,7 @@ export class VFX {
 
     static createImpactVFX(scene, position, normal) {
         const color = 0x00aaff;
-        const count = 4; // Reduced from 6
-        
+        const count = 4;
         for(let i=0; i<count; i++) {
             const pMat = new THREE.MeshBasicMaterial({ color: color });
             const p = new THREE.Mesh(this.impactGeo, pMat);
@@ -168,10 +177,8 @@ export class VFX {
             const bounce = normal.clone().add(new THREE.Vector3((Math.random()-0.5)*2, (Math.random()-0.5)*2, (Math.random()-0.5)*2)).normalize();
             p.userData.velocity = bounce.multiplyScalar(Math.random() * 8 + 4);
             scene.add(p);
-            
             let elapsed = 0;
             const duration = 0.4;
-
             this.activeEffects.push({
                 update: (delta) => {
                     elapsed += delta;

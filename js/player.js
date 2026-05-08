@@ -381,8 +381,15 @@ export class Player {
         }
 
         // --- Physics and Movement ---
-        const groundY = this.terrain.getHeight(this.body.position.x, this.body.position.z);
+        const groundY = this.terrain ? this.terrain.getHeight(this.body.position.x, this.body.position.z) : 0;
         const minY = groundY + 1.5;
+        
+        // Anti-Phasing: If we are way below ground, teleport back up
+        if (this.body.position.y < groundY - 10) {
+            this.body.position.y = groundY + 5;
+            this.body.velocity.y = 0;
+        }
+
         this.canJump = (this.body.position.y <= minY + 0.5) || (Math.abs(this.body.velocity.y) < 0.5 && this.body.position.y < minY + 1.0);
         if (this.body.position.y < minY) {
             this.body.position.y = minY;

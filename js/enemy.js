@@ -293,6 +293,13 @@ export class Enemy {
 
         const groundY = this._snapToTerrain(myPos.x, myPos.z);
         const halfHeight = this.body.shapes[0].halfExtents.y;
+
+        // Anti-Phasing: Teleport back if way below ground
+        if (myPos.y < groundY - 10) {
+            myPos.y = groundY + 5;
+            this.body.velocity.y = 0;
+        }
+
         if (myPos.y < groundY + halfHeight) {
             myPos.y = groundY + halfHeight;
             this.body.velocity.y = Math.max(0, this.body.velocity.y);
