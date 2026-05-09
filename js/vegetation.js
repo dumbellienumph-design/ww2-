@@ -17,6 +17,10 @@ export class Vegetation {
     }
 
     init() {
+        if (!this.terrain.isLoaded) {
+            setTimeout(() => this.init(), 100);
+            return;
+        }
         this.createGrass();
         this.createTrees();
     }
@@ -42,8 +46,8 @@ export class Vegetation {
             const z = (Math.random() - 0.5) * this.terrain.size;
             const y = this.terrain.getHeight(x, z);
 
-            // Populate mountainous terrain - limit to lower slopes/valleys for realism
-            if (y > 10 && y < 60) { 
+            // Populate mountainous terrain - expanded range for extreme elevation
+            if (y > 10 && y < 280) { 
                 if (Math.random() > 0.6) continue; // Moderate density
                 dummy.position.set(x, y, z);
                 const scale = 0.8 + Math.random() * 0.7;
@@ -126,7 +130,7 @@ export class Vegetation {
             const finalY = this.terrain.getHeight(finalX, finalZ);
             
             // Populate mountainous terrain - limit to lower slopes/valleys for realism
-            if (finalY >= 5 && finalY < 75) { 
+            if (finalY >= 5 && finalY < 320) { 
                 if (Math.random() > 0.45) continue; // Moderate density
                 const hL = this.terrain.getHeight(finalX - 0.2, finalZ);
                 const hR = this.terrain.getHeight(finalX + 0.2, finalZ);

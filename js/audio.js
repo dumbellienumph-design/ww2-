@@ -17,7 +17,11 @@ export class GameAudio {
     startAmbient() {
         this._init();
         if (!this.enabled) return;
-        this._scheduleArtillery();
+        if (this.ctx.state === 'suspended') {
+            this.ctx.resume().then(() => this._scheduleArtillery());
+        } else {
+            this._scheduleArtillery();
+        }
     }
 
     destroy() {

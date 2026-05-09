@@ -57,14 +57,6 @@ class Game {
         this.onWindowResize = this.onWindowResize.bind(this);
         window.addEventListener('resize', this.onWindowResize);
         this.createStartOverlay();
-        // Auto-start for testing
-        setTimeout(() => {
-            const overlay = document.getElementById('start-overlay');
-            if (overlay) overlay.remove();
-            this.player.requestPointerLock();
-            this.audio.startAmbient();
-            this.animate();
-        }, 100);
     }
 
     destroy() {
